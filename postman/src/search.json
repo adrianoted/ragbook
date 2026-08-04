@@ -1,0 +1,126 @@
+{
+  "name": "Search",
+  "description": "Search endpoint. Uses the `collection_id` variable.",
+  "item": [
+    {
+      "name": "Search (with LLM answer)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/search",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "search"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": \"What is the main topic?\",\n  \"collection_id\": \"{{collection_id}}\",\n  \"top_k\": 5,\n  \"strategy\": \"hybrid\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "description": "RAG search with LLM answer + source chunks.\n\n`strategy`: `vector`, `tfidf`, `hybrid`\n`collection_id` optional — omit to search across all documents."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response contains sources', function () {",
+              "    pm.expect(pm.response.json().sources).to.be.an('array');",
+              "});",
+              "",
+              "pm.test('Response contains an answer', function () {",
+              "    pm.expect(pm.response.json().answer).to.be.a('string');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Search Raw (no LLM)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/search/raw",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "search",
+            "raw"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": \"What is the main topic?\",\n  \"collection_id\": \"{{collection_id}}\",\n  \"top_k\": 5,\n  \"strategy\": \"hybrid\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "description": "Retrieves the top-k chunks without passing them to the LLM. Returns only the chunks with their scores."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response contains sources', function () {",
+              "    pm.expect(pm.response.json().sources).to.be.an('array');",
+              "});"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Skipped when running the whole collection in the Runner (run_mode = full):",
+          "// this request duplicates an E2E Flow step or deletes a resource",
+          "// that later requests still expect to be alive.",
+          "// With run_mode = manual (default) nothing is skipped.",
+          "if (pm.collectionVariables.get('run_mode') === 'full') {",
+          "    pm.execution.skipRequest();",
+          "}"
+        ]
+      }
+    }
+  ]
+}

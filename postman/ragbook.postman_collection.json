@@ -1,0 +1,1096 @@
+{
+  "info": {
+    "name": "RAGBook",
+    "description": "API collection for the RAGBook RAG application.\n\n**Health**: server smoke test, run this first.\n**E2E Flow**: sequential happy path, use with the Collection Runner.\n**Collections / Documents / Ingest / Search**: individual APIs, with auto-save of variables.\n**Cleanup**: deletions, at the end so a full run reaches it with everything still standing.\n\nThe folder order is designed to support a Run of the whole collection.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "embedding_status",
+      "value": "",
+      "type": "string",
+      "description": "Auto-set by 'Health Check'. warming | ready | error."
+    },
+    {
+      "key": "test_prefix",
+      "value": "[postman_test]",
+      "type": "string",
+      "description": "Safety guard: 'Delete Test Collections' deletes ONLY collections whose name starts with this prefix. Empty it and the request deletes nothing."
+    },
+    {
+      "key": "run_mode",
+      "value": "manual",
+      "type": "string",
+      "description": "manual = every request runs normally (default, manual use). full = meant for the Runner on the WHOLE collection: skips standalone folders and redundant cleanups, leaving Health + E2E Flow + prefix wipe."
+    },
+    {
+      "key": "base_url",
+      "value": "http://localhost:8010",
+      "type": "string",
+      "description": "Test server port (run_test_server.sh). Change to 8000 only if you really want to hit the dev server and its real data."
+    },
+    {
+      "key": "collection_id",
+      "value": "",
+      "type": "string",
+      "description": "Auto-set by 'Create Collection'. UUID of the target collection."
+    },
+    {
+      "key": "standalone_collection_id",
+      "value": "",
+      "type": "string",
+      "description": "Auto-set by the 'Collections' folder. Kept separate from collection_id so individual requests don't delete the E2E Flow's collection."
+    },
+    {
+      "key": "document_id",
+      "value": "",
+      "type": "string",
+      "description": "Auto-set by 'Ingest Document'. UUID of the ingested document."
+    },
+    {
+      "key": "collection_name",
+      "value": "[postman_test] Streaming Docs",
+      "type": "string",
+      "description": "Name for the collection created during the E2E flow."
+    },
+    {
+      "key": "collection_description",
+      "value": "[postman_test] Collection for LangGraph streaming documentation",
+      "type": "string",
+      "description": "Description for the collection created during the E2E flow."
+    },
+    {
+      "key": "document_filename",
+      "value": "",
+      "type": "string",
+      "description": "Auto-set by 'Ingest Document'. Original filename of the ingested file."
+    },
+    {
+      "key": "search_query",
+      "value": "How does streaming work in LangGraph?",
+      "type": "string",
+      "description": "Query used by both Search requests. Change this to test different queries."
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "description": "Server smoke test. Run before the E2E: if `embedding_status` is not `ready`, ingest and search fail or hang.",
+      "item": [
+        {
+          "name": "Health Check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"status is 'ok'\", function () {",
+                  "    pm.expect(pm.response.json().status).to.eql('ok');",
+                  "});",
+                  "",
+                  "var embedding = pm.response.json().embedding_status;",
+                  "pm.collectionVariables.set('embedding_status', embedding);",
+                  "console.log('embedding_status:', embedding);",
+                  "",
+                  "pm.test(\"embedding model ready\", function () {",
+                  "    pm.expect(embedding, 'warming = model still loading/downloading; error = load failed, check the server logs').to.eql('ready');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/health",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "health"
+              ]
+            },
+            "description": "Returns `{\"status\": \"ok\", \"embedding_status\": \"warming|ready|error\"}`.\n\n`status` is `ok` as soon as the port is open; `embedding_status` reflects the loading of the embedding model, which starts in the background at startup (on first boot it downloads the model from Hugging Face, which can take a while).\n\nThe value is saved in the `embedding_status` variable."
+          }
+        }
+      ]
+    },
+    {
+      "name": "E2E Flow",
+      "description": "Complete happy path, to run with the Collection Runner.\nOrder: Create Collection → Ingest Document → List Documents → Search → Search Raw.\nSaves collection_id and document_id for later folders.",
+      "item": [
+        {
+          "name": "1. Create Collection",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Save collection_id', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.id).to.be.a('string');",
+                  "    pm.collectionVariables.set('collection_id', json.id);",
+                  "    console.log('collection_id saved:', json.id);",
+                  "});",
+                  "",
+                  "pm.test('Save collection_name from response', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.name).to.be.a('string');",
+                  "    pm.collectionVariables.set('collection_name', json.name);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/collections",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "collections"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{collection_name}}\",\n  \"description\": \"{{collection_description}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Create a new collection. The response `id` is automatically saved as `collection_id`."
+          }
+        },
+        {
+          "name": "2. Ingest Document",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Save document_id', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.document_id).to.be.a('string');",
+                  "    pm.collectionVariables.set('document_id', json.document_id);",
+                  "    console.log('document_id saved:', json.document_id);",
+                  "});",
+                  "",
+                  "pm.test('Save document_filename', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.filename).to.be.a('string');",
+                  "    pm.collectionVariables.set('document_filename', json.filename);",
+                  "    console.log('document_filename saved:', json.filename);",
+                  "});",
+                  "",
+                  "pm.test('Document has chunks', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.num_chunks).to.be.above(0);",
+                  "    console.log('num_chunks:', json.num_chunks);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/ingest",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ingest"
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "default-file-streaming.md",
+                  "description": "Select 'default-file-streaming.md' from the resources/ folder. Set the Working Directory to resources/ in Postman Settings."
+                },
+                {
+                  "key": "collection_id",
+                  "value": "{{collection_id}}",
+                  "type": "text",
+                  "description": "Auto-populated from step 1."
+                }
+              ]
+            },
+            "description": "Ingests 'default-file-streaming.md' into the collection created in step 1.\nSaves `document_id` and `filename` as variables.\n\nNote: set the Working Directory to resources/ in Postman Settings → General."
+          }
+        },
+        {
+          "name": "3. List Documents in Collection",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Collection contains at least one document', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.be.an('array').that.is.not.empty;",
+                  "    console.log('Documents in collection:', json.length);",
+                  "});",
+                  "",
+                  "pm.test('Ingested document is present', function () {",
+                  "    var json = pm.response.json();",
+                  "    var docId = pm.collectionVariables.get('document_id');",
+                  "    var found = json.some(function(doc) { return doc.id === docId; });",
+                  "    pm.expect(found).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/collections/{{collection_id}}/documents",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "collections",
+                "{{collection_id}}",
+                "documents"
+              ]
+            },
+            "description": "Lists the documents in the collection. Verifies that the ingested document is present."
+          }
+        },
+        {
+          "name": "4. Search (with LLM answer)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains an answer', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.answer).to.be.a('string').that.is.not.empty;",
+                  "    console.log('LLM answer:', json.answer.substring(0, 200));",
+                  "});",
+                  "",
+                  "pm.test('Response contains sources', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.sources).to.be.an('array').that.is.not.empty;",
+                  "    console.log('Number of sources:', json.sources.length);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/search",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "search"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"{{search_query}}\",\n  \"collection_id\": \"{{collection_id}}\",\n  \"top_k\": 5,\n  \"strategy\": \"hybrid\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "RAG search with LLM answer. Uses `search_query` and `collection_id`."
+          }
+        },
+        {
+          "name": "5. Search Raw (no LLM)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains sources', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.sources).to.be.an('array').that.is.not.empty;",
+                  "    console.log('Number of raw sources:', json.sources.length);",
+                  "});",
+                  "",
+                  "pm.test('Sources have scores', function () {",
+                  "    var json = pm.response.json();",
+                  "    json.sources.forEach(function(src) {",
+                  "        pm.expect(src.score).to.be.a('number');",
+                  "        pm.expect(src.chunk_content).to.be.a('string').that.is.not.empty;",
+                  "    });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/search/raw",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "search",
+                "raw"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"{{search_query}}\",\n  \"collection_id\": \"{{collection_id}}\",\n  \"top_k\": 5,\n  \"strategy\": \"hybrid\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Chunk retrieval without LLM. Verifies scores and chunk content."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Collections",
+      "description": "Individual APIs for collection management. They work on their own collection (`standalone_collection_id`), so they don't touch the one created by the E2E Flow.",
+      "item": [
+        {
+          "name": "Create Collection",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Save standalone_collection_id', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.id).to.be.a('string');",
+                  "    // Deliberately NOT collection_id: that one belongs to the E2E Flow",
+                  "    // and later folders still use it.",
+                  "    pm.collectionVariables.set('standalone_collection_id', json.id);",
+                  "    console.log('standalone_collection_id saved:', json.id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/collections",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "collections"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"[postman_test] Standalone\",\n  \"description\": \"[postman_test] Collection used by individual requests\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Creates a collection dedicated to individual requests. The `id` is saved as `standalone_collection_id`. The `[postman_test]` prefix makes it deletable by the prefix wipe should the delete below not run."
+          }
+        },
+        {
+          "name": "List Collections",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/collections",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "collections"
+              ]
+            },
+            "description": "Lists all existing collections."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response is an array', function () {",
+                  "    pm.expect(pm.response.json()).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Collection",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/collections/{{standalone_collection_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "collections",
+                "{{standalone_collection_id}}"
+              ]
+            },
+            "description": "Deletes the collection created above (`standalone_collection_id`), not the E2E Flow one."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Collection deleted', function () {",
+                  "    pm.expect(pm.response.json().detail).to.include('deleted');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// Skipped when running the whole collection in the Runner (run_mode = full):",
+              "// this request duplicates an E2E Flow step or deletes a resource",
+              "// that later requests still expect to be alive.",
+              "// With run_mode = manual (default) nothing is skipped.",
+              "if (pm.collectionVariables.get('run_mode') === 'full') {",
+              "    pm.execution.skipRequest();",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Documents",
+      "description": "Individual APIs for document management. Uses the `collection_id` and `document_id` variables.",
+      "item": [
+        {
+          "name": "List Documents in Collection",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/collections/{{collection_id}}/documents",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "collections",
+                "{{collection_id}}",
+                "documents"
+              ]
+            },
+            "description": "Lists all documents in a collection."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response is an array', function () {",
+                  "    pm.expect(pm.response.json()).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Document",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/collections/{{collection_id}}/documents/{{document_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "collections",
+                "{{collection_id}}",
+                "documents",
+                "{{document_id}}"
+              ]
+            },
+            "description": "Deletes a specific document from a collection."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Document deleted', function () {",
+                  "    pm.expect(pm.response.json().detail).to.include('deleted');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// Skipped when running the whole collection in the Runner (run_mode = full):",
+              "// this request duplicates an E2E Flow step or deletes a resource",
+              "// that later requests still expect to be alive.",
+              "// With run_mode = manual (default) nothing is skipped.",
+              "if (pm.collectionVariables.get('run_mode') === 'full') {",
+              "    pm.execution.skipRequest();",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ingest",
+      "description": "Ingestion endpoint. Saves `document_id` and `document_filename` from the response.",
+      "item": [
+        {
+          "name": "Ingest Document",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has a document_id', function () {",
+                  "    pm.expect(pm.response.json().document_id).to.be.a('string');",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    var json = pm.response.json();",
+                  "    if (json.document_id) {",
+                  "        pm.collectionVariables.set('document_id', json.document_id);",
+                  "        console.log('document_id saved:', json.document_id);",
+                  "    }",
+                  "    if (json.filename) {",
+                  "        pm.collectionVariables.set('document_filename', json.filename);",
+                  "        console.log('document_filename saved:', json.filename);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/ingest",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "ingest"
+              ]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "default-file-streaming.md",
+                  "description": "Requires the Working Directory set to resources/ (Settings → General), otherwise Postman can't resolve the path and sends the field empty: the server responds 400 'Unsupported file type: '."
+                },
+                {
+                  "key": "collection_id",
+                  "value": "{{collection_id}}",
+                  "type": "text",
+                  "description": "UUID of the collection. Auto-populated if you've already run Create Collection."
+                }
+              ]
+            },
+            "description": "Uploads and ingests a file into an existing collection.\nAutomatically saves `document_id` and `filename` as variables."
+          }
+        }
+      ],
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// Skipped when running the whole collection in the Runner (run_mode = full):",
+              "// this request duplicates an E2E Flow step or deletes a resource",
+              "// that later requests still expect to be alive.",
+              "// With run_mode = manual (default) nothing is skipped.",
+              "if (pm.collectionVariables.get('run_mode') === 'full') {",
+              "    pm.execution.skipRequest();",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Search",
+      "description": "Search endpoint. Uses the `collection_id` variable.",
+      "item": [
+        {
+          "name": "Search (with LLM answer)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/search",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "search"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"What is the main topic?\",\n  \"collection_id\": \"{{collection_id}}\",\n  \"top_k\": 5,\n  \"strategy\": \"hybrid\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "RAG search with LLM answer + source chunks.\n\n`strategy`: `vector`, `tfidf`, `hybrid`\n`collection_id` optional — omit to search across all documents."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains sources', function () {",
+                  "    pm.expect(pm.response.json().sources).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('Response contains an answer', function () {",
+                  "    pm.expect(pm.response.json().answer).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Search Raw (no LLM)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/search/raw",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "search",
+                "raw"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"What is the main topic?\",\n  \"collection_id\": \"{{collection_id}}\",\n  \"top_k\": 5,\n  \"strategy\": \"hybrid\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Retrieves the top-k chunks without passing them to the LLM. Returns only the chunks with their scores."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response contains sources', function () {",
+                  "    pm.expect(pm.response.json().sources).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// Skipped when running the whole collection in the Runner (run_mode = full):",
+              "// this request duplicates an E2E Flow step or deletes a resource",
+              "// that later requests still expect to be alive.",
+              "// With run_mode = manual (default) nothing is skipped.",
+              "if (pm.collectionVariables.get('run_mode') === 'full') {",
+              "    pm.execution.skipRequest();",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cleanup",
+      "description": "Deletions, run last.\nFirst the targeted deletes on E2E Flow resources, then the prefix wipe that sweeps up any leftovers with the `test_prefix` prefix.",
+      "item": [
+        {
+          "name": "Delete Document",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Skipped when running the whole collection in the Runner (run_mode = full):",
+                  "// this request duplicates an E2E Flow step or deletes a resource",
+                  "// that later requests still expect to be alive.",
+                  "// With run_mode = manual (default) nothing is skipped.",
+                  "if (pm.collectionVariables.get('run_mode') === 'full') {",
+                  "    pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Document deleted', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.detail).to.include('deleted');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/collections/{{collection_id}}/documents/{{document_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "collections",
+                "{{collection_id}}",
+                "documents",
+                "{{document_id}}"
+              ]
+            },
+            "description": "Deletes the document. Uses `document_id` saved during the E2E flow."
+          }
+        },
+        {
+          "name": "Delete Collection",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Skipped when running the whole collection in the Runner (run_mode = full):",
+                  "// this request duplicates an E2E Flow step or deletes a resource",
+                  "// that later requests still expect to be alive.",
+                  "// With run_mode = manual (default) nothing is skipped.",
+                  "if (pm.collectionVariables.get('run_mode') === 'full') {",
+                  "    pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Collection deleted', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.detail).to.include('deleted');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/collections/{{collection_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "collections",
+                "{{collection_id}}"
+              ]
+            },
+            "description": "Deletes the collection. Uses `collection_id` saved during the E2E flow."
+          }
+        },
+        {
+          "name": "Delete Test Collections (prefix wipe)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const baseUrl = pm.collectionVariables.get('base_url');",
+                  "const prefix = pm.collectionVariables.get('test_prefix');",
+                  "",
+                  "if (!prefix) {",
+                  "    console.log('[wipe] ABORT: test_prefix empty, no collection deleted.');",
+                  "} else {",
+                  "    pm.sendRequest({ url: baseUrl + '/api/collections', method: 'GET' }, function (err, res) {",
+                  "        if (err || res.code !== 200) {",
+                  "            console.log('[wipe] Unable to list collections:', err || res.code);",
+                  "            return;",
+                  "        }",
+                  "",
+                  "        const all = res.json();",
+                  "        const targets = all.filter(function (c) { return (c.name || '').indexOf(prefix) === 0; });",
+                  "        console.log('[wipe] ' + targets.length + ' collections with prefix \"' + prefix +",
+                  "                    '\" to delete, ' + (all.length - targets.length) + ' preserved.');",
+                  "",
+                  "        targets.forEach(function (col) {",
+                  "            pm.sendRequest({",
+                  "                url: baseUrl + '/api/collections/' + col.id + '/documents',",
+                  "                method: 'GET'",
+                  "            }, function (err, res) {",
+                  "                const docs = (!err && res.code === 200) ? res.json() : [];",
+                  "                let pending = docs.length;",
+                  "",
+                  "                function deleteCollection() {",
+                  "                    pm.sendRequest({",
+                  "                        url: baseUrl + '/api/collections/' + col.id,",
+                  "                        method: 'DELETE'",
+                  "                    }, function (err) {",
+                  "                        console.log(err",
+                  "                            ? '[wipe] Error on collection ' + col.id + ': ' + err",
+                  "                            : '[wipe] Deleted collection ' + col.id + ' (' + col.name + ')');",
+                  "                    });",
+                  "                }",
+                  "",
+                  "                if (pending === 0) {",
+                  "                    deleteCollection();",
+                  "                    return;",
+                  "                }",
+                  "",
+                  "                docs.forEach(function (doc) {",
+                  "                    pm.sendRequest({",
+                  "                        url: baseUrl + '/api/collections/' + col.id + '/documents/' + doc.id,",
+                  "                        method: 'DELETE'",
+                  "                    }, function (err) {",
+                  "                        console.log(err",
+                  "                            ? '[wipe] Error on document ' + doc.id + ': ' + err",
+                  "                            : '[wipe] Deleted document ' + doc.id);",
+                  "                        pending -= 1;",
+                  "                        if (pending === 0) { deleteCollection(); }",
+                  "                    });",
+                  "                });",
+                  "            });",
+                  "        });",
+                  "    });",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('No test collections remaining', function () {",
+                  "    const prefix = pm.collectionVariables.get('test_prefix');",
+                  "    const remaining = pm.response.json().filter(function (c) {",
+                  "        return (c.name || '').indexOf(prefix) === 0;",
+                  "    });",
+                  "    pm.expect(remaining, 'test collections still present').to.be.an('array').that.is.empty;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/collections",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "collections"
+              ]
+            },
+            "description": "Deletes ONLY collections whose name starts with the `test_prefix` variable (default `[postman_test]`), along with their documents.\nCollections without that prefix are preserved and counted in the log.\nIf `test_prefix` is empty the request deletes nothing.\n\nUse it to clean up leftovers from a failed E2E run."
+          }
+        }
+      ]
+    }
+  ]
+}

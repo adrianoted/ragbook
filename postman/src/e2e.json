@@ -1,0 +1,295 @@
+{
+  "name": "E2E Flow",
+  "description": "Complete happy path, to run with the Collection Runner.\nOrder: Create Collection → Ingest Document → List Documents → Search → Search Raw.\nSaves collection_id and document_id for later folders.",
+  "item": [
+    {
+      "name": "1. Create Collection",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Save collection_id', function () {",
+              "    var json = pm.response.json();",
+              "    pm.expect(json.id).to.be.a('string');",
+              "    pm.collectionVariables.set('collection_id', json.id);",
+              "    console.log('collection_id saved:', json.id);",
+              "});",
+              "",
+              "pm.test('Save collection_name from response', function () {",
+              "    var json = pm.response.json();",
+              "    pm.expect(json.name).to.be.a('string');",
+              "    pm.collectionVariables.set('collection_name', json.name);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/collections",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "collections"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"{{collection_name}}\",\n  \"description\": \"{{collection_description}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "description": "Create a new collection. The response `id` is automatically saved as `collection_id`."
+      }
+    },
+    {
+      "name": "2. Ingest Document",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Save document_id', function () {",
+              "    var json = pm.response.json();",
+              "    pm.expect(json.document_id).to.be.a('string');",
+              "    pm.collectionVariables.set('document_id', json.document_id);",
+              "    console.log('document_id saved:', json.document_id);",
+              "});",
+              "",
+              "pm.test('Save document_filename', function () {",
+              "    var json = pm.response.json();",
+              "    pm.expect(json.filename).to.be.a('string');",
+              "    pm.collectionVariables.set('document_filename', json.filename);",
+              "    console.log('document_filename saved:', json.filename);",
+              "});",
+              "",
+              "pm.test('Document has chunks', function () {",
+              "    var json = pm.response.json();",
+              "    pm.expect(json.num_chunks).to.be.above(0);",
+              "    console.log('num_chunks:', json.num_chunks);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/ingest",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "ingest"
+          ]
+        },
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "src": "default-file-streaming.md",
+              "description": "Select 'default-file-streaming.md' from the resources/ folder. Set the Working Directory to resources/ in Postman Settings."
+            },
+            {
+              "key": "collection_id",
+              "value": "{{collection_id}}",
+              "type": "text",
+              "description": "Auto-populated from step 1."
+            }
+          ]
+        },
+        "description": "Ingests 'default-file-streaming.md' into the collection created in step 1.\nSaves `document_id` and `filename` as variables.\n\nNote: set the Working Directory to resources/ in Postman Settings → General."
+      }
+    },
+    {
+      "name": "3. List Documents in Collection",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Collection contains at least one document', function () {",
+              "    var json = pm.response.json();",
+              "    pm.expect(json).to.be.an('array').that.is.not.empty;",
+              "    console.log('Documents in collection:', json.length);",
+              "});",
+              "",
+              "pm.test('Ingested document is present', function () {",
+              "    var json = pm.response.json();",
+              "    var docId = pm.collectionVariables.get('document_id');",
+              "    var found = json.some(function(doc) { return doc.id === docId; });",
+              "    pm.expect(found).to.be.true;",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/collections/{{collection_id}}/documents",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "collections",
+            "{{collection_id}}",
+            "documents"
+          ]
+        },
+        "description": "Lists the documents in the collection. Verifies that the ingested document is present."
+      }
+    },
+    {
+      "name": "4. Search (with LLM answer)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response contains an answer', function () {",
+              "    var json = pm.response.json();",
+              "    pm.expect(json.answer).to.be.a('string').that.is.not.empty;",
+              "    console.log('LLM answer:', json.answer.substring(0, 200));",
+              "});",
+              "",
+              "pm.test('Response contains sources', function () {",
+              "    var json = pm.response.json();",
+              "    pm.expect(json.sources).to.be.an('array').that.is.not.empty;",
+              "    console.log('Number of sources:', json.sources.length);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/search",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "search"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": \"{{search_query}}\",\n  \"collection_id\": \"{{collection_id}}\",\n  \"top_k\": 5,\n  \"strategy\": \"hybrid\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "description": "RAG search with LLM answer. Uses `search_query` and `collection_id`."
+      }
+    },
+    {
+      "name": "5. Search Raw (no LLM)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response contains sources', function () {",
+              "    var json = pm.response.json();",
+              "    pm.expect(json.sources).to.be.an('array').that.is.not.empty;",
+              "    console.log('Number of raw sources:', json.sources.length);",
+              "});",
+              "",
+              "pm.test('Sources have scores', function () {",
+              "    var json = pm.response.json();",
+              "    json.sources.forEach(function(src) {",
+              "        pm.expect(src.score).to.be.a('number');",
+              "        pm.expect(src.chunk_content).to.be.a('string').that.is.not.empty;",
+              "    });",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/search/raw",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "search",
+            "raw"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": \"{{search_query}}\",\n  \"collection_id\": \"{{collection_id}}\",\n  \"top_k\": 5,\n  \"strategy\": \"hybrid\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "description": "Chunk retrieval without LLM. Verifies scores and chunk content."
+      }
+    }
+  ]
+}

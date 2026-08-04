@@ -1,0 +1,66 @@
+# RAGBook — full stack (API + Gradio UI + Ollama):
+#
+#   cp -n .env.example .env      # then set OLLAMA_BASE_URL=http://ollama:11434
+#   docker compose up
+#
+# `docker compose up`      → app + ollama (everything in Docker).
+# `docker compose up app`  → app only, for Ollama on the host
+#                            (OLLAMA_BASE_URL=http://host.docker.internal:11434)
+#                            or Gemini via GOOGLE_API_KEY. `app` has no
+#                            depends_on, so this does NOT start ollama.
+# The Docker variants of each setting are documented in .env.example.
+#
+# After the stack is up, pull a model once (persisted in the ollama-models volume).
+# The model must match LLM_MODEL in .env:
+#   docker compose exec ollama ollama pull qwen3:4b    # recommended on CPU
+#   docker compose exec ollama ollama pull qwen3:14b   # parity with the native setup (host/GPU)
+
+name: ragbook
+
+services:
+  app:
+    build: .
+    # Host port 8001 by default (override with APP_PORT in .env) so the
+    # containerized app never clashes with a native `python run.py` on 8000.
+    # The container always listens on 8000 internally.
+    ports:
+      - "${APP_PORT:-8001}:8000"
+    env_file: .env
+    volumes:
+      # Persisted app data (faiss/chroma/tfidf/bm25 indexes, sqlite db, uploads).
+      - ./data:/app/data
+      # HuggingFace cache — keeps the ~8GB embedding model across recreations.
+      # Mount point matches HF_HOME in the Dockerfile.
+      - hf-cache:/home/appuser/.cache/huggingface
+    # Reach an Ollama running on the host (Linux needs the explicit mapping).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Slim image has no curl — probe /api/health with the bundled python.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+  ollama:
+    image: ollama/ollama
+    volumes:
+      # Persist pulled models across recreations.
+      - ollama-models:/root/.ollama
+    # Port 11434 stays on the compose network only (app reaches it at
+    # http://ollama:11434); not published to the host.
+    expose:
+      - "11434"
+    # GPU on Linux (requires nvidia-container-toolkit on the host) — uncomment:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  hf-cache:
+  ollama-models:

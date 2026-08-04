@@ -1,0 +1,216 @@
+{
+  "name": "Cleanup",
+  "description": "Deletions, run last.\nFirst the targeted deletes on E2E Flow resources, then the prefix wipe that sweeps up any leftovers with the `test_prefix` prefix.",
+  "item": [
+    {
+      "name": "Delete Document",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// Skipped when running the whole collection in the Runner (run_mode = full):",
+              "// this request duplicates an E2E Flow step or deletes a resource",
+              "// that later requests still expect to be alive.",
+              "// With run_mode = manual (default) nothing is skipped.",
+              "if (pm.collectionVariables.get('run_mode') === 'full') {",
+              "    pm.execution.skipRequest();",
+              "}"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Document deleted', function () {",
+              "    var json = pm.response.json();",
+              "    pm.expect(json.detail).to.include('deleted');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/collections/{{collection_id}}/documents/{{document_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "collections",
+            "{{collection_id}}",
+            "documents",
+            "{{document_id}}"
+          ]
+        },
+        "description": "Deletes the document. Uses `document_id` saved during the E2E flow."
+      }
+    },
+    {
+      "name": "Delete Collection",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// Skipped when running the whole collection in the Runner (run_mode = full):",
+              "// this request duplicates an E2E Flow step or deletes a resource",
+              "// that later requests still expect to be alive.",
+              "// With run_mode = manual (default) nothing is skipped.",
+              "if (pm.collectionVariables.get('run_mode') === 'full') {",
+              "    pm.execution.skipRequest();",
+              "}"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Collection deleted', function () {",
+              "    var json = pm.response.json();",
+              "    pm.expect(json.detail).to.include('deleted');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/collections/{{collection_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "collections",
+            "{{collection_id}}"
+          ]
+        },
+        "description": "Deletes the collection. Uses `collection_id` saved during the E2E flow."
+      }
+    },
+    {
+      "name": "Delete Test Collections (prefix wipe)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const baseUrl = pm.collectionVariables.get('base_url');",
+              "const prefix = pm.collectionVariables.get('test_prefix');",
+              "",
+              "if (!prefix) {",
+              "    console.log('[wipe] ABORT: test_prefix empty, no collection deleted.');",
+              "} else {",
+              "    pm.sendRequest({ url: baseUrl + '/api/collections', method: 'GET' }, function (err, res) {",
+              "        if (err || res.code !== 200) {",
+              "            console.log('[wipe] Unable to list collections:', err || res.code);",
+              "            return;",
+              "        }",
+              "",
+              "        const all = res.json();",
+              "        const targets = all.filter(function (c) { return (c.name || '').indexOf(prefix) === 0; });",
+              "        console.log('[wipe] ' + targets.length + ' collections with prefix \"' + prefix +",
+              "                    '\" to delete, ' + (all.length - targets.length) + ' preserved.');",
+              "",
+              "        targets.forEach(function (col) {",
+              "            pm.sendRequest({",
+              "                url: baseUrl + '/api/collections/' + col.id + '/documents',",
+              "                method: 'GET'",
+              "            }, function (err, res) {",
+              "                const docs = (!err && res.code === 200) ? res.json() : [];",
+              "                let pending = docs.length;",
+              "",
+              "                function deleteCollection() {",
+              "                    pm.sendRequest({",
+              "                        url: baseUrl + '/api/collections/' + col.id,",
+              "                        method: 'DELETE'",
+              "                    }, function (err) {",
+              "                        console.log(err",
+              "                            ? '[wipe] Error on collection ' + col.id + ': ' + err",
+              "                            : '[wipe] Deleted collection ' + col.id + ' (' + col.name + ')');",
+              "                    });",
+              "                }",
+              "",
+              "                if (pending === 0) {",
+              "                    deleteCollection();",
+              "                    return;",
+              "                }",
+              "",
+              "                docs.forEach(function (doc) {",
+              "                    pm.sendRequest({",
+              "                        url: baseUrl + '/api/collections/' + col.id + '/documents/' + doc.id,",
+              "                        method: 'DELETE'",
+              "                    }, function (err) {",
+              "                        console.log(err",
+              "                            ? '[wipe] Error on document ' + doc.id + ': ' + err",
+              "                            : '[wipe] Deleted document ' + doc.id);",
+              "                        pending -= 1;",
+              "                        if (pending === 0) { deleteCollection(); }",
+              "                    });",
+              "                });",
+              "            });",
+              "        });",
+              "    });",
+              "}"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('No test collections remaining', function () {",
+              "    const prefix = pm.collectionVariables.get('test_prefix');",
+              "    const remaining = pm.response.json().filter(function (c) {",
+              "        return (c.name || '').indexOf(prefix) === 0;",
+              "    });",
+              "    pm.expect(remaining, 'test collections still present').to.be.an('array').that.is.empty;",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/collections",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "collections"
+          ]
+        },
+        "description": "Deletes ONLY collections whose name starts with the `test_prefix` variable (default `[postman_test]`), along with their documents.\nCollections without that prefix are preserved and counted in the log.\nIf `test_prefix` is empty the request deletes nothing.\n\nUse it to clean up leftovers from a failed E2E run."
+      }
+    }
+  ]
+}

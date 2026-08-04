@@ -1,0 +1,149 @@
+[
+  {
+    "query": "How to add short-term memory to a LangGraph agent",
+    "expected_documents": ["default-file-memory.md"],
+    "expected_keywords": ["checkpointer", "InMemorySaver", "thread_id", "short-term", "persistence"]
+  },
+  {
+    "query": "How to use PostgresSaver for production checkpointing",
+    "expected_documents": ["default-file-memory.md"],
+    "expected_keywords": ["PostgresSaver", "from_conn_string", "production", "checkpointer"]
+  },
+  {
+    "query": "How to store long-term memory across conversations",
+    "expected_documents": ["default-file-memory.md"],
+    "expected_keywords": ["store", "InMemoryStore", "namespace", "long-term", "aput", "asearch"]
+  },
+  {
+    "query": "What are the available stream modes in LangGraph",
+    "expected_documents": ["default-file-streaming.md"],
+    "expected_keywords": ["values", "updates", "messages", "custom", "stream_mode"]
+  },
+  {
+    "query": "How to stream LLM tokens in LangGraph",
+    "expected_documents": ["default-file-streaming.md"],
+    "expected_keywords": ["messages", "stream_mode", "message_chunk", "metadata", "token"]
+  },
+  {
+    "query": "How to send custom data from a LangGraph node",
+    "expected_documents": ["default-file-streaming.md"],
+    "expected_keywords": ["get_stream_writer", "custom", "writer"]
+  },
+  {
+    "query": "How to stream outputs from subgraphs",
+    "expected_documents": ["default-file-streaming.md"],
+    "expected_keywords": ["subgraphs", "namespace", "ns", "stream"]
+  },
+  {
+    "query": "How to access the store inside graph nodes using Runtime",
+    "expected_documents": ["default-file-memory.md"],
+    "expected_keywords": ["Runtime", "runtime.store", "context_schema", "asearch", "aput"]
+  },
+  {
+    "query": "Difference between v1 and v2 stream output format",
+    "expected_documents": ["default-file-streaming.md"],
+    "expected_keywords": ["version", "v2", "StreamPart", "type", "data", "ns"]
+  },
+  {
+    "query": "How to filter streamed tokens by node or tag",
+    "expected_documents": ["default-file-streaming.md"],
+    "expected_keywords": ["tags", "langgraph_node", "metadata", "filter", "messages"]
+  },
+  {
+    "query": "How to use MongoDBSaver for production checkpointing in LangGraph",
+    "expected_documents": ["default-file-memory.md"],
+    "expected_keywords": ["MongoDBSaver", "from_conn_string", "checkpointer", "MongoDB"]
+  },
+  {
+    "query": "How to use RedisSaver as a checkpointer in LangGraph",
+    "expected_documents": ["default-file-memory.md"],
+    "expected_keywords": ["RedisSaver", "from_conn_string", "checkpointer", "Redis"]
+  },
+  {
+    "query": "How to use PostgresStore for long-term memory in production",
+    "expected_documents": ["default-file-memory.md"],
+    "expected_keywords": ["PostgresStore", "from_conn_string", "store", "long-term"]
+  },
+  {
+    "query": "How to enable semantic search in a LangGraph memory store",
+    "expected_documents": ["default-file-memory.md"],
+    "expected_keywords": ["InMemoryStore", "init_embeddings", "index", "embed", "dims"]
+  },
+  {
+    "query": "How to trim messages to manage the LLM context window in LangGraph",
+    "expected_documents": ["default-file-memory.md"],
+    "expected_keywords": ["trim_messages", "count_tokens_approximately", "strategy", "max_tokens"]
+  },
+  {
+    "query": "How to delete messages from LangGraph graph state",
+    "expected_documents": ["default-file-memory.md"],
+    "expected_keywords": ["RemoveMessage", "REMOVE_ALL_MESSAGES", "delete_messages"]
+  },
+  {
+    "query": "How to summarize conversation history in a LangGraph agent",
+    "expected_documents": ["default-file-memory.md"],
+    "expected_keywords": ["summarize_conversation", "summary", "MessagesState", "RemoveMessage"]
+  },
+  {
+    "query": "How to view the current state of a thread in LangGraph",
+    "expected_documents": ["default-file-memory.md"],
+    "expected_keywords": ["get_state", "StateSnapshot", "thread_id", "config"]
+  },
+  {
+    "query": "How to list all checkpoint history for a LangGraph thread",
+    "expected_documents": ["default-file-memory.md"],
+    "expected_keywords": ["get_state_history", "CheckpointTuple", "thread_id", "list"]
+  },
+  {
+    "query": "How to delete all checkpoints for a LangGraph thread",
+    "expected_documents": ["default-file-memory.md"],
+    "expected_keywords": ["delete_thread", "checkpointer", "thread_id"]
+  },
+  {
+    "query": "How to propagate a checkpointer to subgraphs in LangGraph",
+    "expected_documents": ["default-file-memory.md"],
+    "expected_keywords": ["subgraph", "compile", "checkpointer", "InMemorySaver"]
+  },
+  {
+    "query": "How to stream checkpoint events as a LangGraph graph executes",
+    "expected_documents": ["default-file-streaming.md"],
+    "expected_keywords": ["checkpoints", "stream_mode", "MemorySaver", "CheckpointStreamPart"]
+  },
+  {
+    "query": "How to stream task start and finish events in LangGraph",
+    "expected_documents": ["default-file-streaming.md"],
+    "expected_keywords": ["tasks", "stream_mode", "TasksStreamPart"]
+  },
+  {
+    "query": "How to stream LangGraph outputs in debug mode",
+    "expected_documents": ["default-file-streaming.md"],
+    "expected_keywords": ["debug", "stream_mode", "DebugStreamPart"]
+  },
+  {
+    "query": "How to disable streaming for a specific model in LangGraph",
+    "expected_documents": ["default-file-streaming.md"],
+    "expected_keywords": ["streaming", "False", "disable_streaming"]
+  },
+  {
+    "query": "How to stream outputs from a non-LangChain LLM in LangGraph",
+    "expected_documents": ["default-file-streaming.md"],
+    "expected_keywords": ["get_stream_writer", "custom", "call_arbitrary_model", "custom_llm_chunk"]
+  },
+  {
+    "query": "How to stream LangGraph outputs with async Python older than 3.11",
+    "expected_documents": ["default-file-streaming.md"],
+    "expected_keywords": ["RunnableConfig", "StreamWriter", "ainvoke", "writer"]
+  },
+  {
+    "query": "What is the best recipe for carbonara pasta",
+    "negative": true
+  },
+  {
+    "query": "How to train for a marathon in 12 weeks",
+    "negative": true
+  },
+  {
+    "query": "What are the federal income tax brackets for 2024",
+    "negative": true
+  }
+]

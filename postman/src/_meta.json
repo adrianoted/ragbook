@@ -1,0 +1,75 @@
+{
+  "info": {
+    "name": "RAGBook",
+    "description": "API collection for the RAGBook RAG application.\n\n**Health**: server smoke test, run this first.\n**E2E Flow**: sequential happy path, use with the Collection Runner.\n**Collections / Documents / Ingest / Search**: individual APIs, with auto-save of variables.\n**Cleanup**: deletions, at the end so a full run reaches it with everything still standing.\n\nThe folder order is designed to support a Run of the whole collection.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "embedding_status",
+      "value": "",
+      "type": "string",
+      "description": "Auto-set by 'Health Check'. warming | ready | error."
+    },
+    {
+      "key": "test_prefix",
+      "value": "[postman_test]",
+      "type": "string",
+      "description": "Safety guard: 'Delete Test Collections' deletes ONLY collections whose name starts with this prefix. Empty it and the request deletes nothing."
+    },
+    {
+      "key": "run_mode",
+      "value": "manual",
+      "type": "string",
+      "description": "manual = every request runs normally (default, manual use). full = meant for the Runner on the WHOLE collection: skips standalone folders and redundant cleanups, leaving Health + E2E Flow + prefix wipe."
+    },
+    {
+      "key": "base_url",
+      "value": "http://localhost:8010",
+      "type": "string",
+      "description": "Test server port (run_test_server.sh). Change to 8000 only if you really want to hit the dev server and its real data."
+    },
+    {
+      "key": "collection_id",
+      "value": "",
+      "type": "string",
+      "description": "Auto-set by 'Create Collection'. UUID of the target collection."
+    },
+    {
+      "key": "standalone_collection_id",
+      "value": "",
+      "type": "string",
+      "description": "Auto-set by the 'Collections' folder. Kept separate from collection_id so individual requests don't delete the E2E Flow's collection."
+    },
+    {
+      "key": "document_id",
+      "value": "",
+      "type": "string",
+      "description": "Auto-set by 'Ingest Document'. UUID of the ingested document."
+    },
+    {
+      "key": "collection_name",
+      "value": "[postman_test] Streaming Docs",
+      "type": "string",
+      "description": "Name for the collection created during the E2E flow."
+    },
+    {
+      "key": "collection_description",
+      "value": "[postman_test] Collection for LangGraph streaming documentation",
+      "type": "string",
+      "description": "Description for the collection created during the E2E flow."
+    },
+    {
+      "key": "document_filename",
+      "value": "",
+      "type": "string",
+      "description": "Auto-set by 'Ingest Document'. Original filename of the ingested file."
+    },
+    {
+      "key": "search_query",
+      "value": "How does streaming work in LangGraph?",
+      "type": "string",
+      "description": "Query used by both Search requests. Change this to test different queries."
+    }
+  ]
+}

@@ -1,0 +1,87 @@
+{
+  "name": "Ingest",
+  "description": "Ingestion endpoint. Saves `document_id` and `document_filename` from the response.",
+  "item": [
+    {
+      "name": "Ingest Document",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response has a document_id', function () {",
+              "    pm.expect(pm.response.json().document_id).to.be.a('string');",
+              "});",
+              "",
+              "if (pm.response.code === 200) {",
+              "    var json = pm.response.json();",
+              "    if (json.document_id) {",
+              "        pm.collectionVariables.set('document_id', json.document_id);",
+              "        console.log('document_id saved:', json.document_id);",
+              "    }",
+              "    if (json.filename) {",
+              "        pm.collectionVariables.set('document_filename', json.filename);",
+              "        console.log('document_filename saved:', json.filename);",
+              "    }",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/ingest",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "ingest"
+          ]
+        },
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "src": "default-file-streaming.md",
+              "description": "Requires the Working Directory set to resources/ (Settings → General), otherwise Postman can't resolve the path and sends the field empty: the server responds 400 'Unsupported file type: '."
+            },
+            {
+              "key": "collection_id",
+              "value": "{{collection_id}}",
+              "type": "text",
+              "description": "UUID of the collection. Auto-populated if you've already run Create Collection."
+            }
+          ]
+        },
+        "description": "Uploads and ingests a file into an existing collection.\nAutomatically saves `document_id` and `filename` as variables."
+      }
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Skipped when running the whole collection in the Runner (run_mode = full):",
+          "// this request duplicates an E2E Flow step or deletes a resource",
+          "// that later requests still expect to be alive.",
+          "// With run_mode = manual (default) nothing is skipped.",
+          "if (pm.collectionVariables.get('run_mode') === 'full') {",
+          "    pm.execution.skipRequest();",
+          "}"
+        ]
+      }
+    }
+  ]
+}

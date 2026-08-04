@@ -1,0 +1,37 @@
+# Keep the build context minimal and free of secrets/large artifacts.
+# The Dockerfile copies only requirements.txt and src/, but everything listed
+# here is also excluded from the daemon context to keep builds fast.
+
+# Virtualenv and VCS
+.venv
+.git
+.gitignore
+
+# Persisted data and caches (indexes, sqlite db, uploads) — mounted at runtime
+data/
+tmp/
+
+# Docs, tests, evaluation outputs — not needed to serve the app
+docs/
+tests/
+evaluation/results/
+
+# Secrets and local config
+.env
+.env.*
+
+# Tooling / editor / agent state
+postman/
+.claude/
+.deck/
+
+# Python bytecode and tool caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# OS noise
+.DS_Store

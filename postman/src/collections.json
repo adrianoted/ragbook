@@ -1,0 +1,148 @@
+{
+  "name": "Collections",
+  "description": "Individual APIs for collection management. They work on their own collection (`standalone_collection_id`), so they don't touch the one created by the E2E Flow.",
+  "item": [
+    {
+      "name": "Create Collection",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Save standalone_collection_id', function () {",
+              "    var json = pm.response.json();",
+              "    pm.expect(json.id).to.be.a('string');",
+              "    // Deliberately NOT collection_id: that one belongs to the E2E Flow",
+              "    // and later folders still use it.",
+              "    pm.collectionVariables.set('standalone_collection_id', json.id);",
+              "    console.log('standalone_collection_id saved:', json.id);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/collections",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "collections"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"[postman_test] Standalone\",\n  \"description\": \"[postman_test] Collection used by individual requests\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "description": "Creates a collection dedicated to individual requests. The `id` is saved as `standalone_collection_id`. The `[postman_test]` prefix makes it deletable by the prefix wipe should the delete below not run."
+      }
+    },
+    {
+      "name": "List Collections",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/collections",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "collections"
+          ]
+        },
+        "description": "Lists all existing collections."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response is an array', function () {",
+              "    pm.expect(pm.response.json()).to.be.an('array');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Delete Collection",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/collections/{{standalone_collection_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "collections",
+            "{{standalone_collection_id}}"
+          ]
+        },
+        "description": "Deletes the collection created above (`standalone_collection_id`), not the E2E Flow one."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Collection deleted', function () {",
+              "    pm.expect(pm.response.json().detail).to.include('deleted');",
+              "});"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Skipped when running the whole collection in the Runner (run_mode = full):",
+          "// this request duplicates an E2E Flow step or deletes a resource",
+          "// that later requests still expect to be alive.",
+          "// With run_mode = manual (default) nothing is skipped.",
+          "if (pm.collectionVariables.get('run_mode') === 'full') {",
+          "    pm.execution.skipRequest();",
+          "}"
+        ]
+      }
+    }
+  ]
+}

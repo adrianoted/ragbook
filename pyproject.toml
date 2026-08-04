@@ -1,0 +1,34 @@
+[tool.importlinter]
+root_packages = ["src"]
+
+[[tool.importlinter.contracts]]
+name = "Dependencies point inward"
+type = "layers"
+layers = ["src.ui", "src.api", "src.application", "src.domain"]
+ignore_imports = [
+    "src.api.app -> src.ui.gradio_app",
+    "src.api.app -> src.ui.constants",
+]
+
+[[tool.importlinter.contracts]]
+name = "Application and infrastructure are independent"
+type = "independence"
+modules = ["src.application", "src.infrastructure"]
+
+[[tool.importlinter.contracts]]
+name = "Inner layers do not read config"
+type = "forbidden"
+source_modules = ["src.domain", "src.application"]
+forbidden_modules = ["src.config"]
+
+[[tool.importlinter.contracts]]
+name = "Domain depends on nothing internal"
+type = "forbidden"
+source_modules = ["src.domain"]
+forbidden_modules = ["src.application", "src.infrastructure", "src.api", "src.ui"]
+
+[[tool.importlinter.contracts]]
+name = "Infrastructure does not know outer layers"
+type = "forbidden"
+source_modules = ["src.infrastructure"]
+forbidden_modules = ["src.api", "src.ui"]

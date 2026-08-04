@@ -1,0 +1,98 @@
+{
+  "name": "Documents",
+  "description": "Individual APIs for document management. Uses the `collection_id` and `document_id` variables.",
+  "item": [
+    {
+      "name": "List Documents in Collection",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/collections/{{collection_id}}/documents",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "collections",
+            "{{collection_id}}",
+            "documents"
+          ]
+        },
+        "description": "Lists all documents in a collection."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response is an array', function () {",
+              "    pm.expect(pm.response.json()).to.be.an('array');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Delete Document",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/collections/{{collection_id}}/documents/{{document_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "collections",
+            "{{collection_id}}",
+            "documents",
+            "{{document_id}}"
+          ]
+        },
+        "description": "Deletes a specific document from a collection."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Document deleted', function () {",
+              "    pm.expect(pm.response.json().detail).to.include('deleted');",
+              "});"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Skipped when running the whole collection in the Runner (run_mode = full):",
+          "// this request duplicates an E2E Flow step or deletes a resource",
+          "// that later requests still expect to be alive.",
+          "// With run_mode = manual (default) nothing is skipped.",
+          "if (pm.collectionVariables.get('run_mode') === 'full') {",
+          "    pm.execution.skipRequest();",
+          "}"
+        ]
+      }
+    }
+  ]
+}

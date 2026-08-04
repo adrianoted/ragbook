@@ -1,0 +1,44 @@
+{
+  "name": "Health",
+  "description": "Server smoke test. Run before the E2E: if `embedding_status` is not `ready`, ingest and search fail or hang.",
+  "item": [
+    {
+      "name": "Health Check",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"status is 'ok'\", function () {",
+              "    pm.expect(pm.response.json().status).to.eql('ok');",
+              "});",
+              "",
+              "var embedding = pm.response.json().embedding_status;",
+              "pm.collectionVariables.set('embedding_status', embedding);",
+              "console.log('embedding_status:', embedding);",
+              "",
+              "pm.test(\"embedding model ready\", function () {",
+              "    pm.expect(embedding, 'warming = model still loading/downloading; error = load failed, check the server logs').to.eql('ready');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/health",
+          "host": ["{{base_url}}"],
+          "path": ["api", "health"]
+        },
+        "description": "Returns `{\"status\": \"ok\", \"embedding_status\": \"warming|ready|error\"}`.\n\n`status` is `ok` as soon as the port is open; `embedding_status` reflects the loading of the embedding model, which starts in the background at startup (on first boot it downloads the model from Hugging Face, which can take a while).\n\nThe value is saved in the `embedding_status` variable."
+      }
+    }
+  ]
+}
