@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 RAGBook — a RAG (retrieval-augmented generation) service: FastAPI backend + Gradio UI for ingesting documents (text/PDF/CSV/image), searching them (vector / TF-IDF / hybrid), and answering questions via an LLM (Gemini or Ollama).
 
+## Code comments
+
+All code comments must always be written in English, regardless of the language used in the conversation.
+
 ## Commands
 
 ```bash
@@ -47,7 +51,7 @@ python -m evaluation.evaluate --collection-id ID [--api-url URL] [--top-k N] [--
 python -m evaluation.compare evaluation/results/<before>.json evaluation/results/<after>.json
 ```
 
-Configuration comes from `.env` (see `.env.example`). `LLM_PROVIDER` and `LLM_MODEL` are required — validated at startup via `settings.validate_llm()` (raises `ConfigurationError` if either is unset or unknown). The API serves at `http://HOST:PORT/api` (health check: `/api/health`); the Gradio UI is mounted on the same server at `/ui`. The embedding model loads in a background task at startup (first boot downloads it from Hugging Face), so the port opens immediately; `/api/health` reports `embedding_status: warming|ready|error`.
+Configuration comes from `.env` (see `.env.example`). `LLM_PROVIDER` and `LLM_MODEL` are required — validated at startup via `settings.validate_llm()` (raises `ConfigurationError` if either is unset or unknown). The API serves at `http://HOST:PORT/api` (health check: `/api/health`); the Gradio UI is mounted on the same server at `/ui`. The embedding model loads in a background task at startup (first boot downloads it from Hugging Face via `src/infrastructure/embeddings/model_prefetch.py`), so the port opens immediately. The warm-up runs in two phases: `downloading` (byte-level prefetch with progress) → `loading` (model initialisation). `/api/health` reports four fields: `embedding_status` (`warming|ready|error`), `embedding_phase` (`downloading|loading|null`), `embedding_progress` (`{downloaded_bytes, total_bytes, percent}` or `null` — populated only during the download phase).
 
 ## Architecture
 
@@ -58,6 +62,7 @@ Clean/hexagonal architecture; dependencies point inward (`ui → api → applica
 - **`src/infrastructure/`** — concrete adapters, one subpackage per port: vector stores (FAISS/Chroma/Pinecone/Qdrant), LLMs (Gemini/Ollama), chunkers (recursive/semantic/CSV), loaders, lexical search behind `TfidfPort` (sklearn `SklearnTfidf` by default, `Bm25Lexical` with `LEXICAL_BACKEND=bm25`; BM25 indexes live in `data/bm25_indexes/` — switching backend with existing collections leaves the index empty, re-ingest required), cross-encoder reranker, SQLite metadata, search strategies.
 - **`src/api/`** — FastAPI app and routers. **`src/api/dependencies.py` is the composition root**: `@lru_cache` factory functions pick adapters based on `settings` (e.g. `VECTOR_STORE`, `LLM_PROVIDER`, `CHUNKER`, `SEARCH_STRATEGY`, `RERANKER_ENABLED`, `FUSION`, `LEXICAL_BACKEND`) and expose `Annotated` type aliases for FastAPI DI. Adding a new adapter means implementing the port and wiring it here. It is therefore the **only** file under `src/api/` allowed to import from `src/infrastructure/` — every other file there must depend on ports and injected aliases. Consequence for the layered agent rules: `ai-feature-builder.config.json` maps both `layers.presentation` and `layers.composition` to `src/api`, so `ai-fb-check-arch` reports this file's infrastructure imports as a direction violation. That single finding is expected — do not "fix" it by rewriting the imports.
 - **`src/ui/`** — Gradio Blocks UI (tabs in `src/ui/tabs/`). It does **not** call use cases directly; it goes through `ApiClient`, which calls the REST API over HTTP.
+- **`src/api/embedding_state.py`** — thread-safe in-process state for the embedding warm-up; mutated by the prefetch/load thread, read by `/api/health`.
 - **`src/config/settings.py`** — pydantic-settings singleton `settings`, loaded from `.env`.
 - **Pinecone adapter** (`src/infrastructure/vector_stores/pinecone_store.py`): on startup, `_ensure_index` checks `has_index`; creates a serverless index (`ServerlessSpec(cloud, region)`, metric cosine) if absent, or raises `ValueError` on dimension mismatch. Configured via `PINECONE_CLOUD` (default `aws`) and `PINECONE_REGION` (default `us-east-1`). Manual smoke-test procedure: `docs/pinecone-smoke-test.md`.
 
