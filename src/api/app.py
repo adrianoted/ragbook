@@ -11,14 +11,16 @@ import gradio as gr
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.api import embedding_state
 from src.api.dependencies import get_embedding_dimension, get_metadata_store, get_vector_store
+from src.infrastructure.embeddings.model_prefetch import prefetch_model
 from src.api.routers.ingest_router import router as ingest_router
 from src.api.routers.search_router import router as search_router
 from src.api.routers.collection_router import router as collection_router
 from src.api.routers.document_router import router as document_router
 from src.config.settings import settings
 from src.ui.constants import GRADIO_MOUNT_PATH
-from src.ui.gradio_app import create_gradio_app
+from src.ui.gradio_app import GRADIO_CSS, create_gradio_app
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
@@ -31,11 +33,6 @@ for _name in ("httpcore", "httpx", "aiosqlite", "gradio", "urllib3", "matplotlib
 
 
 logger = logging.getLogger(__name__)
-
-
-# Embedding model state, exposed by /api/health: "warming" until the model is
-# downloaded/loaded, then "ready" (or "error" if loading fails).
-embedding_status: dict[str, str] = {"status": "warming"}
 
 
 @asynccontextmanager
@@ -57,23 +54,33 @@ async def lifespan(app: FastAPI):
 
 async def _warmup_embedding_model(metadata_store) -> None:
     logger.info(
-        "⏳ Loading embedding model %r... On first boot the model is downloaded "
-        "from Hugging Face (large models can take several GB and many minutes). "
-        "The API is already reachable: /api/health returns "
-        "embedding_status=\"warming\" until the model is ready.",
+        "⏳ Warming up embedding model %r in two phases — download then load. On "
+        "first boot the model is fetched from Hugging Face (large models can take "
+        "several GB and many minutes). The API is already reachable: /api/health "
+        "returns embedding_status=\"warming\" until the model is ready, and exposes "
+        "the download percentage while it is being fetched.",
         settings.embedding_model,
     )
+    # Phase 1 — download: prefetch fills the HF cache and reports byte progress.
+    # It never raises (returns False on any failure), so no try/except is needed;
+    # the load below then proceeds normally.
+    await asyncio.to_thread(
+        prefetch_model, settings.embedding_model, embedding_state.report_download_progress
+    )
+    # Phase 2 — load: get_embedding_dimension finds the cache warm and loads it
+    # into RAM.
+    embedding_state.mark_loading()
     try:
         dimension = await asyncio.to_thread(get_embedding_dimension)
     except asyncio.CancelledError:
         raise
     except Exception:
-        embedding_status["status"] = "error"
+        embedding_state.mark_error()
         logger.exception(
             "❌ Failed to load embedding model %r", settings.embedding_model
         )
         return
-    embedding_status["status"] = "ready"
+    embedding_state.mark_ready()
     logger.info(
         "✅ Embedding model %r ready (dim %d)", settings.embedding_model, dimension
     )
@@ -119,10 +126,10 @@ app.include_router(document_router)
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok", "embedding_status": embedding_status["status"]}
+    return embedding_state.health_payload()
 
 
 # Mount Gradio UI
 api_base_url = f"http://{settings.host}:{settings.port}/api"
 gradio_app = create_gradio_app(api_base_url=api_base_url)
-app = gr.mount_gradio_app(app, gradio_app, path=GRADIO_MOUNT_PATH)
+app = gr.mount_gradio_app(app, gradio_app, path=GRADIO_MOUNT_PATH, css=GRADIO_CSS)

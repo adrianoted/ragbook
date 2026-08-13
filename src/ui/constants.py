@@ -26,6 +26,14 @@ TIMEOUT_DEFAULT = 10
 TIMEOUT_INGEST = 120
 TIMEOUT_SEARCH = 120
 
+# ── Warm-up banner ───────────────────────────────────────
+HEALTH_POLL_SECONDS = 10
+BANNER_DOWNLOADING = "⏳ Downloading model… {percent}% ({done} / {total} GB)"
+BANNER_LOADING = "⏳ Loading model into memory…"
+BANNER_ERROR = "❌ Model loading failed — check server logs."
+BANNER_VARIANT_INFO = "warmup-banner-info"
+BANNER_VARIANT_ERROR = "warmup-banner-error"
+
 # ── Labels ───────────────────────────────────────────────────
 NO_COLLECTION_PLACEHOLDER = "—"
 DOWNLOAD_FILE_PREFIX = "ragbook_answer_"

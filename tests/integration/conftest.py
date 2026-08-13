@@ -16,6 +16,18 @@ for mod_name in _MISSING_MODULES:
         sys.modules[mod_name] = MagicMock()
 
 
+@pytest.fixture(autouse=True)
+def _reset_embedding_state():
+    """Isolate warm-up state between tests: the module-level dict in
+    embedding_state is shared, so a test that mutates it must not leak into
+    the next one."""
+    from src.api import embedding_state
+
+    embedding_state.reset()
+    yield
+    embedding_state.reset()
+
+
 @pytest.fixture
 def mock_ingest_use_case(sample_document, sample_chunks) -> AsyncMock:
     mock = AsyncMock()
@@ -84,9 +96,11 @@ def test_app(
     app.include_router(collection_router)
     app.include_router(document_router)
 
+    from src.api import embedding_state
+
     @app.get("/api/health")
     async def health_check():
-        return {"status": "ok", "embedding_status": "ready"}
+        return embedding_state.health_payload()
 
     test_settings = Settings(
         upload_dir=str(tmp_path / "uploads"),

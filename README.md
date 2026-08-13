@@ -228,12 +228,13 @@ The API and UI come up right away on port **8001** (so Docker never clashes with
 - REST API — `http://localhost:8001/api`
 - Gradio UI — `http://localhost:8001/ui`
 
-**On first launch the embedding model (~8 GB) is downloaded in the background** — the server is reachable immediately, but ingest/search wait for the model. Check readiness with:
+**On first launch the embedding model (~8 GB) is downloaded in the background** — the server is reachable immediately, but ingest/search wait for the model. The Gradio UI shows a live progress banner during warm-up. Check readiness with:
 
 ```bash
 curl http://localhost:8001/api/health
-# {"status": "ok", "embedding_status": "warming"}  → still downloading/loading
-# {"status": "ok", "embedding_status": "ready"}    → good to go
+# → downloading: {"status":"ok","embedding_status":"warming","embedding_phase":"downloading","embedding_progress":{"downloaded_bytes":1234567890,"total_bytes":8000000000,"percent":15.4}}
+# → loading:     {"status":"ok","embedding_status":"warming","embedding_phase":"loading","embedding_progress":null}
+# → ready:       {"status":"ok","embedding_status":"ready","embedding_phase":null,"embedding_progress":null}
 ```
 
 The download is cached in the `hf-cache` volume, so later launches are fast.

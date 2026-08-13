@@ -116,6 +116,17 @@ class ApiClient:
                 if event in ("done", "error"):
                     return
 
+    # ── Health ───────────────────────────────────────────────
+
+    def health(self) -> dict:
+        """Return the /health payload, or {} when the server is unreachable."""
+        try:
+            resp = httpx.get(f"{self._base}/health", timeout=TIMEOUT_DEFAULT)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception:
+            return {}
+
     # ── Helpers ──────────────────────────────────────────────
 
     def collection_choices(self) -> list[tuple[str, str]]:
