@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
@@ -40,9 +41,24 @@ class Collection(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
 
 
+class RetrievalTuning(BaseModel):
+    fusion: Literal["weighted", "rrf"] | None = None
+    vector_weight: float | None = None
+    max_results_per_document: int | None = None
+    reranker_enabled: bool | None = None
+
+
+class LlmOptions(BaseModel):
+    temperature: float | None = None
+    think: bool | None = None
+    num_ctx: int | None = None
+
+
 class SearchQuery(BaseModel):
     query: str
     collection_id: UUID | None = None
     top_k: int = 5
     strategy: SearchStrategy | None = None
     min_score: float | None = None
+    tuning: RetrievalTuning = Field(default_factory=RetrievalTuning)
+    llm_options: LlmOptions = Field(default_factory=LlmOptions)

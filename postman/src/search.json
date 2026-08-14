@@ -1,6 +1,6 @@
 {
   "name": "Search",
-  "description": "Search endpoint. Uses the `collection_id` variable.",
+  "description": "Search endpoints. Uses the `collection_id` variable.\n\nAll three endpoints (`/api/search`, `/api/search/raw`, `/api/search/stream`) accept the same optional tuning parameters in addition to `query`, `collection_id`, `top_k`, and `strategy`:\n\n| Parameter | Type | Range | Default | Effect |\n|-----------|------|-------|---------|--------|\n| `min_score` | float | 0.0–1.0 | reranker-aware | Score filter threshold |\n| `fusion` | `weighted` \\| `rrf` | — | from settings | Hybrid merge strategy |\n| `hybrid_vector_weight` | float | 0.0–1.0 | 0.7 | Weight of vector branch in weighted fusion |\n| `max_results_per_document` | int | 1–10 | 2 | Cap on chunks per source document |\n| `reranker_enabled` | bool | — | from settings | Enable/disable cross-encoder reranker |\n| `llm_temperature` | float | 0.0–2.0 | 0.3 | Sampling temperature for answer generation |\n| `llm_think` | bool | — | false | Ollama reasoning mode (no-op with Gemini) |\n| `llm_num_ctx` | int | 2048–32768 | 8192 | LLM context window size (no-op with Gemini) |\n\nOmit any field to use the server default. `GET /api/config` returns all effective defaults and valid ranges.",
   "item": [
     {
       "name": "Search (with LLM answer)",
@@ -31,7 +31,7 @@
             }
           }
         },
-        "description": "RAG search with LLM answer + source chunks.\n\n`strategy`: `vector`, `tfidf`, `hybrid`\n`collection_id` optional — omit to search across all documents."
+        "description": "RAG search with LLM answer + source chunks.\n\n`strategy`: `vector`, `tfidf`, `hybrid`\n\nAccepts optional per-request tuning parameters — see the folder description. Use the \"Search (tuned)\" request to see all eight parameters with example values."
       },
       "event": [
         {
@@ -85,7 +85,7 @@
             }
           }
         },
-        "description": "Retrieves the top-k chunks without passing them to the LLM. Returns only the chunks with their scores."
+        "description": "Retrieves the top-k chunks without passing them to the LLM. Returns only the chunks with their scores.\n\nAccepts optional per-request tuning parameters — see the folder description. Use the \"Search (tuned)\" request to see all eight parameters with example values."
       },
       "event": [
         {
@@ -99,6 +99,59 @@
               "",
               "pm.test('Response contains sources', function () {",
               "    pm.expect(pm.response.json().sources).to.be.an('array');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Search (tuned)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/search",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "search"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"query\": \"What is the main topic?\",\n  \"collection_id\": \"{{collection_id}}\",\n  \"top_k\": 5,\n  \"strategy\": \"hybrid\",\n  \"min_score\": 0.3,\n  \"fusion\": \"weighted\",\n  \"hybrid_vector_weight\": 0.7,\n  \"max_results_per_document\": 2,\n  \"reranker_enabled\": true,\n  \"llm_temperature\": 0.3,\n  \"llm_think\": false,\n  \"llm_num_ctx\": 8192\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "description": "Search with all eight tuning parameters explicitly set. Use this as a reference when experimenting with every knob.\n\n- `min_score` (0.0–1.0): score filter threshold — applied to cross-encoder sigmoid scores when the reranker is active, to raw retrieval scores otherwise.\n- `fusion` (`weighted` | `rrf`): hybrid merge strategy for this query.\n- `hybrid_vector_weight` (0.0–1.0): weight of the vector branch in weighted fusion.\n- `max_results_per_document` (1–10): cap on chunks retained per source document after diversification.\n- `reranker_enabled`: enable or disable the cross-encoder reranker for this query.\n- `llm_temperature` (0.0–2.0): sampling temperature for answer generation.\n- `llm_think`: enable the model's reasoning/thinking mode. **Ollama only — no-op with Gemini.**\n- `llm_num_ctx` (2048–32768): context window size for the LLM call. **Ollama only — no-op with Gemini.** The loaded model may reject high values."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response contains sources', function () {",
+              "    pm.expect(pm.response.json().sources).to.be.an('array');",
+              "});",
+              "",
+              "pm.test('Response contains an answer', function () {",
+              "    pm.expect(pm.response.json().answer).to.be.a('string');",
               "});"
             ]
           }

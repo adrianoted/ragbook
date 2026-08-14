@@ -1,3 +1,4 @@
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
@@ -8,7 +9,7 @@ from src.api.dependencies import CollectionUseCaseDeps, EmbeddingDimensionDeps, 
 from src.api.guards import check_model_compatibility
 from src.api.sse import delta_event, done_event, error_event, sources_event
 from src.config.settings import Settings
-from src.domain.entities import SearchQuery, SearchResult
+from src.domain.entities import LlmOptions, RetrievalTuning, SearchQuery, SearchResult
 from src.domain.enums import SearchStrategy
 
 router = APIRouter(prefix="/api/search", tags=["search"])
@@ -21,7 +22,32 @@ class SearchRequest(BaseModel):
     # sklearn slicing) — 0 or negative crashes the vector branch.
     top_k: int = Field(5, ge=1, le=100)
     strategy: SearchStrategy | None = None
-    min_score: float | None = None
+    min_score: float | None = Field(
+        None, ge=0.0, le=1.0, description="Score threshold; overrides the reranker-aware default."
+    )
+    # ── retrieval tuning (per-query overrides of the RetrievalTuning defaults) ──
+    fusion: Literal["weighted", "rrf"] | None = Field(
+        None, description="Hybrid fusion method for this query (weighted | rrf)."
+    )
+    hybrid_vector_weight: float | None = Field(
+        None, ge=0.0, le=1.0, description="Weight of the vector branch in weighted fusion."
+    )
+    max_results_per_document: int | None = Field(
+        None, ge=1, le=10, description="Cap on results kept per document after diversification."
+    )
+    reranker_enabled: bool | None = Field(
+        None, description="Enable/disable the cross-encoder reranker for this query."
+    )
+    # ── LLM options (per-call overrides of the generation defaults) ──
+    llm_temperature: float | None = Field(
+        None, ge=0.0, le=2.0, description="Sampling temperature for the answer generation."
+    )
+    llm_think: bool | None = Field(
+        None, description="Enable the model's thinking/reasoning mode when supported."
+    )
+    llm_num_ctx: int | None = Field(
+        None, ge=2048, le=32768, description="Context window size for the LLM call."
+    )
 
 
 class SourceItem(BaseModel):
@@ -68,13 +94,36 @@ async def _resolve_collection_id(
 def _build_search_query(
     request: SearchRequest, collection_id: UUID, current_settings: Settings
 ) -> SearchQuery:
+    # Resolve the reranker flag *effectively in force for this request* first: the
+    # per-query override wins over the settings default. The min_score default then
+    # follows that decision — without this, a request that turns the reranker off
+    # would still get the sigmoid-scale threshold (0.3) applied to raw retrieval
+    # scores, filtering away almost everything.
+    effective_reranker = (
+        request.reranker_enabled
+        if request.reranker_enabled is not None
+        else current_settings.reranker_enabled
+    )
+
     if request.min_score is not None:
         min_score = request.min_score
-    elif current_settings.reranker_enabled:
-        # The filter runs on cross-encoder scores (see SearchUseCase._retrieve)
+    elif effective_reranker:
+        # The filter runs on cross-encoder sigmoid scores (see SearchUseCase._retrieve)
         min_score = current_settings.rerank_min_score
     else:
         min_score = current_settings.min_score
+
+    tuning = RetrievalTuning(
+        fusion=request.fusion,
+        vector_weight=request.hybrid_vector_weight,
+        max_results_per_document=request.max_results_per_document,
+        reranker_enabled=request.reranker_enabled,
+    )
+    llm_options = LlmOptions(
+        temperature=request.llm_temperature,
+        think=request.llm_think,
+        num_ctx=request.llm_num_ctx,
+    )
 
     return SearchQuery(
         query=request.query,
@@ -82,6 +131,8 @@ def _build_search_query(
         top_k=request.top_k,
         strategy=request.strategy,
         min_score=min_score,
+        tuning=tuning,
+        llm_options=llm_options,
     )
 
 

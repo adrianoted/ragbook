@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 import httpx
 
 from src.config.settings import Settings
+from src.domain.entities import LlmOptions
 from src.domain.ports.llm_port import LlmPort
 from src.domain.query_mode import parse_mode
 from src.infrastructure.llm.prompts import (
@@ -33,7 +34,20 @@ class OllamaLlm(LlmPort):
         context_text = truncate_context(context)
         return build_rag_prompt(clean_prompt, context_text, mode)
 
-    def _build_payload(self, full_prompt: str, stream: bool) -> dict:
+    def _build_payload(
+        self,
+        full_prompt: str,
+        stream: bool,
+        options: LlmOptions | None = None,
+    ) -> dict:
+        # Field-by-field merge with `is not None` (never `or`): temperature=0.0
+        # and think=False are legitimate overrides, not falsy fall-throughs.
+        opts = options or LlmOptions()
+        temperature = (
+            opts.temperature if opts.temperature is not None else self._temperature
+        )
+        num_ctx = opts.num_ctx if opts.num_ctx is not None else self._num_ctx
+        think = opts.think if opts.think is not None else self._think
         payload: dict = {
             "model": self._model,
             "messages": [
@@ -41,18 +55,23 @@ class OllamaLlm(LlmPort):
             ],
             "stream": stream,
             "options": {
-                "temperature": self._temperature,
-                "num_ctx": self._num_ctx,
+                "temperature": temperature,
+                "num_ctx": num_ctx,
             },
         }
         # Only send "think" when enabled: older Ollama versions reject the field
-        if self._think:
+        if think:
             payload["think"] = True
         return payload
 
-    async def generate(self, prompt: str, context: list[str]) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        context: list[str],
+        options: LlmOptions | None = None,
+    ) -> str:
         full_prompt = self._build_full_prompt(prompt, context)
-        payload = self._build_payload(full_prompt, stream=False)
+        payload = self._build_payload(full_prompt, stream=False, options=options)
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 response = await client.post(
@@ -74,10 +93,13 @@ class OllamaLlm(LlmPort):
             raise RuntimeError(f"LLM generation failed: {e}") from e
 
     async def generate_stream(
-        self, prompt: str, context: list[str]
+        self,
+        prompt: str,
+        context: list[str],
+        options: LlmOptions | None = None,
     ) -> AsyncIterator[str]:
         full_prompt = self._build_full_prompt(prompt, context)
-        payload = self._build_payload(full_prompt, stream=True)
+        payload = self._build_payload(full_prompt, stream=True, options=options)
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 async with client.stream(

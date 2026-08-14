@@ -10,6 +10,14 @@ from src.domain.ports.vector_store_port import VectorStorePort
 
 logger = logging.getLogger(__name__)
 
+_VALID_FUSIONS = ("weighted", "rrf")
+
+
+def validate_fusion(value: str) -> str:
+    if value not in _VALID_FUSIONS:
+        raise ValueError(f"Unknown fusion '{value}'; expected 'weighted' or 'rrf'")
+    return value
+
 
 class HybridSearch(SearchPort):
     def __init__(
@@ -19,20 +27,22 @@ class HybridSearch(SearchPort):
         vector_weight: float = 0.7,
         fusion: str = "weighted",
     ) -> None:
-        if fusion not in ("weighted", "rrf"):
-            raise ValueError(
-                f"Unknown fusion '{fusion}'; expected 'weighted' or 'rrf'"
-            )
         self._vector_store = vector_store
         self._tfidf = tfidf
         self._vector_weight = vector_weight
-        self._fusion = fusion
+        self._fusion = validate_fusion(fusion)
 
     async def search(
         self, query: SearchQuery, embedding_port: EmbeddingPort
     ) -> list[SearchResult]:
         collection_id = (
             str(query.collection_id) if query.collection_id else None
+        )
+
+        tuning = query.tuning
+        fusion = validate_fusion(tuning.fusion) if tuning.fusion else self._fusion
+        vector_weight = (
+            tuning.vector_weight if tuning.vector_weight is not None else self._vector_weight
         )
 
         async def _vector_search() -> list[SearchResult]:
@@ -89,11 +99,11 @@ class HybridSearch(SearchPort):
                 for r in vector_results[: query.top_k]
             ]
 
-        if self._fusion == "rrf":
+        if fusion == "rrf":
             fused = _fuse_rrf(vector_results, tfidf_results)
         else:
             fused = _fuse_weighted(
-                vector_results, tfidf_results, self._vector_weight
+                vector_results, tfidf_results, vector_weight
             )
 
         return fused[: query.top_k]

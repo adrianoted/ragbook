@@ -104,6 +104,21 @@ If no results survive the threshold, the system returns "No sufficiently relevan
 > comparing golden queries vs off-topic probes: relevant chunks score 0.9–1.0, garbage
 > 0.0–0.1). `MIN_SCORE=0.15` remains as the fallback filter when the reranker is disabled.
 
+> **Per-request override (2026-08)**: the search endpoints accept an optional `min_score`
+> field that overrides the server default for a single query. The scale (sigmoid vs raw)
+> follows the **effective reranker flag of that request**, not the global `RERANKER_ENABLED`
+> setting. A request that sends `reranker_enabled=false` without an explicit `min_score` gets
+> the raw-score threshold (0.15), not the sigmoid-scale one (0.3) — otherwise nearly all
+> results would be filtered out. An explicit `min_score` always wins, regardless of the
+> reranker flag. `GET /api/config` exposes the reranker-aware default that the server would
+> apply, so clients can display the correct starting value.
+>
+> **First-request download warning**: if `RERANKER_ENABLED=false` on the server and a
+> per-request `reranker_enabled=true` is sent, the cross-encoder is loaded on demand on that
+> first request (the adapter is always constructed at startup via `get_reranker_port()` to
+> satisfy the DI graph, but the model weights are lazy-loaded on first use). The download is
+> ~90 MB and can add several minutes of latency to that first request.
+
 ### OPT-3: Score normalization fix
 
 **Impact**: medium | **Complexity**: low | **Files**: `src/infrastructure/search/hybrid_search.py`

@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
+from src.domain.entities import LlmOptions
 from src.infrastructure.llm.ollama_llm import OllamaLlm
 
 
@@ -57,8 +58,24 @@ def _fake_stream_client(lines: list[str], *, raise_exc: Exception | None = None)
     return client_cm, client
 
 
-async def _collect(llm, prompt="hello", context=None):
-    return [tok async for tok in llm.generate_stream(prompt, context or ["ctx"])]
+def _fake_post_client(content: str = "the answer"):
+    """Build a fake httpx.AsyncClient whose ``post`` returns *content*."""
+    response = MagicMock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"message": {"content": content}}
+    client = MagicMock()
+    client.post = AsyncMock(return_value=response)
+    client_cm = MagicMock()
+    client_cm.__aenter__ = AsyncMock(return_value=client)
+    client_cm.__aexit__ = AsyncMock(return_value=None)
+    return client_cm, client
+
+
+async def _collect(llm, prompt="hello", context=None, options=None):
+    return [
+        tok
+        async for tok in llm.generate_stream(prompt, context or ["ctx"], options)
+    ]
 
 
 @pytest.mark.asyncio
@@ -154,3 +171,65 @@ async def test_generate_unchanged_after_refactor():
     sent = payload["messages"][0]["content"]
     assert "/summary" not in sent
     assert "concise summary" in sent
+
+
+async def _generate_payload(settings, options=None) -> dict:
+    client_cm, client = _fake_post_client()
+    with patch("httpx.AsyncClient", return_value=client_cm):
+        await OllamaLlm(settings).generate("q", ["ctx"], options)
+    return client.post.call_args.kwargs["json"]
+
+
+@pytest.mark.asyncio
+async def test_generate_without_options_uses_instance_defaults():
+    payload = await _generate_payload(_settings())
+    assert payload["options"] == {"temperature": 0.0, "num_ctx": 8192}
+    assert "think" not in payload
+
+
+@pytest.mark.asyncio
+async def test_options_override_temperature_and_num_ctx():
+    payload = await _generate_payload(
+        _settings(), LlmOptions(temperature=0.9, num_ctx=16384)
+    )
+    assert payload["options"]["temperature"] == 0.9
+    assert payload["options"]["num_ctx"] == 16384
+
+
+@pytest.mark.asyncio
+async def test_options_partial_merge_keeps_instance_num_ctx():
+    # temperature=0.0 is a legitimate override (never treated as falsy)
+    payload = await _generate_payload(_settings(), LlmOptions(temperature=0.0))
+    assert payload["options"]["temperature"] == 0.0
+    assert payload["options"]["num_ctx"] == 8192
+
+
+@pytest.mark.asyncio
+async def test_options_think_true_overrides_instance_false():
+    payload = await _generate_payload(
+        _settings(think=False), LlmOptions(think=True)
+    )
+    assert payload["think"] is True
+
+
+@pytest.mark.asyncio
+async def test_options_think_false_overrides_instance_true():
+    payload = await _generate_payload(
+        _settings(think=True), LlmOptions(think=False)
+    )
+    assert "think" not in payload
+
+
+@pytest.mark.asyncio
+async def test_stream_forwards_options_with_stream_true():
+    lines = _ndjson({"message": {"content": "x"}, "done": True})
+    client_cm, client = _fake_stream_client(lines)
+    with patch("httpx.AsyncClient", return_value=client_cm):
+        await _collect(
+            OllamaLlm(_settings(think=False)),
+            options=LlmOptions(temperature=0.9, think=True),
+        )
+    payload = client.stream.call_args.kwargs["json"]
+    assert payload["stream"] is True
+    assert payload["options"]["temperature"] == 0.9
+    assert payload["think"] is True

@@ -3,7 +3,12 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.application.search_use_case import SearchUseCase, _NO_RESULTS_MSG
-from src.domain.entities import SearchQuery, SearchResult
+from src.domain.entities import (
+    LlmOptions,
+    RetrievalTuning,
+    SearchQuery,
+    SearchResult,
+)
 
 
 @pytest.fixture
@@ -144,6 +149,7 @@ async def test_execute_stream_passes_query_and_context_to_generate_stream(
     mock_llm.generate_stream.assert_called_once_with(
         sample_search_query.query,
         [r.chunk.content for r in sample_search_results],
+        options=sample_search_query.llm_options,
     )
 
 
@@ -165,3 +171,186 @@ async def test_execute_stream_propagates_llm_exception_during_iteration(
     with pytest.raises(RuntimeError, match="LLM error mid-stream"):
         async for _ in stream:
             pass
+
+
+# ── Per-request override resolution (task 2) ──────────────────
+
+
+@pytest.mark.asyncio
+async def test_reranker_enabled_per_request_overrides_disabled_default(
+    mock_search, mock_embedding, mock_llm, sample_search_results,
+):
+    """Reranker off by default in the ctor, but the request turns it on:
+    rerank runs and the over-fetch factor is 4x."""
+    mock_search.search.return_value = sample_search_results
+    mock_reranker = AsyncMock()
+    mock_reranker.rerank.return_value = sample_search_results
+
+    use_case = SearchUseCase(
+        search=mock_search,
+        embedding=mock_embedding,
+        llm=mock_llm,
+        reranker=mock_reranker,
+        reranker_enabled=False,
+    )
+    query = SearchQuery(
+        query="anything", top_k=5, tuning=RetrievalTuning(reranker_enabled=True)
+    )
+
+    await use_case.execute_raw(query)
+
+    mock_reranker.rerank.assert_called_once()
+    overfetch_query = mock_search.search.call_args[0][0]
+    assert overfetch_query.top_k == 5 * 4
+
+
+@pytest.mark.asyncio
+async def test_reranker_disabled_per_request_overrides_enabled_default(
+    mock_search, mock_embedding, mock_llm, sample_search_results,
+):
+    """Reranker on by default in the ctor, but the request turns it off:
+    rerank does not run and the over-fetch factor is 3x."""
+    mock_search.search.return_value = sample_search_results
+    mock_reranker = AsyncMock()
+
+    use_case = SearchUseCase(
+        search=mock_search,
+        embedding=mock_embedding,
+        llm=mock_llm,
+        reranker=mock_reranker,
+        reranker_enabled=True,
+    )
+    query = SearchQuery(
+        query="anything", top_k=5, tuning=RetrievalTuning(reranker_enabled=False)
+    )
+
+    await use_case.execute_raw(query)
+
+    mock_reranker.rerank.assert_not_called()
+    overfetch_query = mock_search.search.call_args[0][0]
+    assert overfetch_query.top_k == 5 * 3
+
+
+@pytest.mark.asyncio
+async def test_no_override_keeps_default_reranker_behavior(
+    mock_search, mock_embedding, mock_llm, sample_search_results,
+):
+    """No per-request override: reranker follows the ctor default (on),
+    rerank runs and the over-fetch factor is 4x."""
+    mock_search.search.return_value = sample_search_results
+    mock_reranker = AsyncMock()
+    mock_reranker.rerank.return_value = sample_search_results
+
+    use_case = SearchUseCase(
+        search=mock_search,
+        embedding=mock_embedding,
+        llm=mock_llm,
+        reranker=mock_reranker,
+    )
+    query = SearchQuery(query="anything", top_k=5)
+
+    await use_case.execute_raw(query)
+
+    mock_reranker.rerank.assert_called_once()
+    overfetch_query = mock_search.search.call_args[0][0]
+    assert overfetch_query.top_k == 5 * 4
+
+
+@pytest.mark.asyncio
+async def test_reranker_override_ignored_when_no_reranker_wired(
+    mock_search, mock_embedding, mock_llm, sample_search_results,
+):
+    """No reranker instance wired: a per-request enable cannot conjure one,
+    no crash, over-fetch stays 3x."""
+    mock_search.search.return_value = sample_search_results
+
+    use_case = SearchUseCase(
+        search=mock_search,
+        embedding=mock_embedding,
+        llm=mock_llm,
+        reranker=None,
+    )
+    query = SearchQuery(
+        query="anything", top_k=5, tuning=RetrievalTuning(reranker_enabled=True)
+    )
+
+    results = await use_case.execute_raw(query)
+
+    assert isinstance(results, list)
+    overfetch_query = mock_search.search.call_args[0][0]
+    assert overfetch_query.top_k == 5 * 3
+
+
+@pytest.mark.asyncio
+async def test_max_results_per_document_override_reaches_diversifier(
+    mock_search, mock_embedding, mock_llm, sample_chunks,
+):
+    """A per-request cap of 1 overrides the ctor default of 3: at most one
+    chunk per document survives even though all candidates share a document."""
+    candidates = [
+        SearchResult(chunk=sample_chunks[0], score=0.95, source="vector"),
+        SearchResult(chunk=sample_chunks[1], score=0.90, source="vector"),
+        SearchResult(chunk=sample_chunks[2], score=0.85, source="vector"),
+    ]
+    mock_search.search.return_value = candidates
+
+    use_case = SearchUseCase(
+        search=mock_search,
+        embedding=mock_embedding,
+        llm=mock_llm,
+        max_results_per_document=3,
+    )
+    query = SearchQuery(
+        query="anything", top_k=5, tuning=RetrievalTuning(max_results_per_document=1)
+    )
+
+    results = await use_case.execute_raw(query)
+
+    assert len(results) == 1
+
+
+@pytest.mark.asyncio
+async def test_execute_forwards_llm_options_to_generate(
+    mock_search, mock_embedding, mock_llm, sample_search_results,
+):
+    mock_search.search.return_value = sample_search_results
+    options = LlmOptions(temperature=0.1, think=False, num_ctx=4096)
+    query = SearchQuery(query="anything", top_k=5, llm_options=options)
+
+    use_case = SearchUseCase(search=mock_search, embedding=mock_embedding, llm=mock_llm)
+    await use_case.execute(query)
+
+    assert mock_llm.generate.call_args.kwargs["options"] == options
+
+
+@pytest.mark.asyncio
+async def test_execute_stream_forwards_llm_options_to_generate_stream(
+    mock_search, mock_embedding, mock_llm, sample_search_results,
+):
+    mock_search.search.return_value = sample_search_results
+    mock_llm.generate_stream = MagicMock(return_value=_async_tokens("ok"))
+    options = LlmOptions(temperature=0.7)
+    query = SearchQuery(query="anything", top_k=5, llm_options=options)
+
+    use_case = SearchUseCase(search=mock_search, embedding=mock_embedding, llm=mock_llm)
+    sources, stream = await use_case.execute_stream(query)
+    [t async for t in stream]
+
+    assert mock_llm.generate_stream.call_args.kwargs["options"] == options
+
+
+@pytest.mark.asyncio
+async def test_execute_forwards_empty_llm_options_when_none_specified(
+    mock_search, mock_embedding, mock_llm, sample_search_results,
+):
+    """A SearchQuery with no explicit llm_options passes an empty LlmOptions
+    (all fields None) to the LLM, never None."""
+    mock_search.search.return_value = sample_search_results
+    query = SearchQuery(query="anything", top_k=5)
+
+    use_case = SearchUseCase(search=mock_search, embedding=mock_embedding, llm=mock_llm)
+    await use_case.execute(query)
+
+    forwarded = mock_llm.generate.call_args.kwargs["options"]
+    assert forwarded == LlmOptions()
+    assert forwarded is not None

@@ -9,15 +9,38 @@ from src.ui.constants import (
     CHUNK_PREVIEW_MAX_CHARS,
     DEFAULT_SEARCH_STRATEGY,
     DOWNLOAD_FILE_PREFIX,
+    FUSION_CHOICES,
+    LLM_NUM_CTX_INFO,
+    LLM_THINK_INFO,
+    RERANKER_INFO,
     SEARCH_STRATEGIES,
     TOP_K_DEFAULT,
     TOP_K_MAX,
     TOP_K_MIN,
+    TUNING_FALLBACK_DEFAULTS,
+    TUNING_FALLBACK_RANGES,
+    TUNING_LABELS,
 )
 
 
-def create(client: ApiClient) -> tuple[callable, gr.Dropdown]:
-    """Render the Search tab."""
+def create(client: ApiClient) -> tuple[callable, list]:
+    """Render the Search tab.
+
+    Returns the load function and the list of components it feeds, in the exact
+    order the function yields them, so the caller can wire ``app.load``.
+    """
+
+    def _fallback_slider(key: str, info: str | None = None) -> gr.Slider:
+        """A slider seeded with the offline fallbacks; the server overrides it at load."""
+        lo, hi, step = TUNING_FALLBACK_RANGES[key]
+        return gr.Slider(
+            minimum=lo,
+            maximum=hi,
+            value=TUNING_FALLBACK_DEFAULTS[key],
+            step=step,
+            label=TUNING_LABELS[key],
+            info=info,
+        )
 
     with gr.Row():
         with gr.Column(scale=3):
@@ -67,15 +90,137 @@ def create(client: ApiClient) -> tuple[callable, gr.Dropdown]:
                 step=1,
                 label="Top K results",
             )
+            with gr.Accordion("Advanced", open=False):
+                min_score_slider = _fallback_slider("min_score")
+                fusion_radio = gr.Radio(
+                    choices=FUSION_CHOICES,
+                    value=TUNING_FALLBACK_DEFAULTS["fusion"],
+                    label=TUNING_LABELS["fusion"],
+                )
+                hybrid_vector_weight_slider = _fallback_slider("hybrid_vector_weight")
+                max_results_per_document_slider = _fallback_slider("max_results_per_document")
+                reranker_enabled_checkbox = gr.Checkbox(
+                    value=TUNING_FALLBACK_DEFAULTS["reranker_enabled"],
+                    label=TUNING_LABELS["reranker_enabled"],
+                    info=RERANKER_INFO,
+                )
+                llm_temperature_slider = _fallback_slider("llm_temperature")
+                llm_think_checkbox = gr.Checkbox(
+                    value=TUNING_FALLBACK_DEFAULTS["llm_think"],
+                    label=TUNING_LABELS["llm_think"],
+                    info=LLM_THINK_INFO,
+                )
+                llm_num_ctx_slider = _fallback_slider("llm_num_ctx", info=LLM_NUM_CTX_INFO)
+                reset_btn = gr.Button("Reset to defaults", size="sm")
 
     last_answer = gr.State("")
+    # Server-side defaults, loaded from GET /api/config; drives "Reset to defaults".
+    server_defaults = gr.State(dict(TUNING_FALLBACK_DEFAULTS))
 
-    def refresh_collections():
+    # Controls fed by the load function, in return order. server_defaults must stay
+    # last: gradio_app wires app.load against exactly this list.
+    tuning_controls = [
+        min_score_slider,
+        fusion_radio,
+        hybrid_vector_weight_slider,
+        max_results_per_document_slider,
+        reranker_enabled_checkbox,
+        llm_temperature_slider,
+        llm_think_checkbox,
+        llm_num_ctx_slider,
+    ]
+    load_outputs = [search_collection, *tuning_controls, server_defaults]
+
+    def load_search_tab():
+        """Page-load function: fill the collections dropdown and seed the tuning controls.
+
+        Reads GET /api/config here (not at build time, when the server is not yet
+        listening). Returns one update per component in ``load_outputs`` order.
+
+        Only ``app.load`` calls this. The Refresh button uses
+        ``refresh_collection_choices`` instead, so re-listing collections never
+        discards the tuning values the user has just set.
+        """
+        config = client.get_config()
+        defaults = config.get("defaults", {})
+        ranges = config.get("ranges", {})
+        # When the server is unreachable (config == {}) keep the Ollama-only
+        # controls visible: search still works with server-side defaults.
+        ollama_only = config.get("llm_provider") == "ollama" if config else True
+
+        def _slider(key, visible=None):
+            rng = ranges.get(key) or {}
+            fb_min, fb_max, fb_step = TUNING_FALLBACK_RANGES[key]
+            kwargs = {
+                "value": defaults.get(key, TUNING_FALLBACK_DEFAULTS[key]),
+                "minimum": rng.get("min", fb_min),
+                "maximum": rng.get("max", fb_max),
+                "step": rng.get("step", fb_step),
+            }
+            if visible is not None:
+                kwargs["visible"] = visible
+            return gr.update(**kwargs)
+
+        def _value(key, visible=None):
+            kwargs = {"value": defaults.get(key, TUNING_FALLBACK_DEFAULTS[key])}
+            if visible is not None:
+                kwargs["visible"] = visible
+            return gr.update(**kwargs)
+
+        stored = defaults or dict(TUNING_FALLBACK_DEFAULTS)
+
+        return (
+            gr.update(choices=client.collection_choices()),
+            _slider("min_score"),
+            _value("fusion"),
+            _slider("hybrid_vector_weight"),
+            _slider("max_results_per_document"),
+            _value("reranker_enabled"),
+            _slider("llm_temperature"),
+            _value("llm_think", visible=ollama_only),
+            _slider("llm_num_ctx", visible=ollama_only),
+            stored,
+        )
+
+    def refresh_collection_choices():
+        """Refresh button: re-list the collections and touch nothing else."""
         return gr.update(choices=client.collection_choices())
 
-    refresh_btn.click(fn=refresh_collections, outputs=[search_collection])
+    refresh_btn.click(fn=refresh_collection_choices, outputs=[search_collection])
 
-    def do_search(query, collection_id, strategy, top_k):
+    def reset_to_defaults(defaults):
+        """Reset the eight controls to the server defaults (fallbacks if offline)."""
+        d = defaults or TUNING_FALLBACK_DEFAULTS
+        return tuple(
+            gr.update(value=d.get(key, TUNING_FALLBACK_DEFAULTS[key]))
+            for key in (
+                "min_score",
+                "fusion",
+                "hybrid_vector_weight",
+                "max_results_per_document",
+                "reranker_enabled",
+                "llm_temperature",
+                "llm_think",
+                "llm_num_ctx",
+            )
+        )
+
+    reset_btn.click(fn=reset_to_defaults, inputs=[server_defaults], outputs=tuning_controls)
+
+    def do_search(
+        query,
+        collection_id,
+        strategy,
+        top_k,
+        min_score,
+        fusion,
+        hybrid_vector_weight,
+        max_results_per_document,
+        reranker_enabled,
+        llm_temperature,
+        llm_think,
+        llm_num_ctx,
+    ):
         if not query.strip():
             yield "", gr.update(value=[]), ""
             return
@@ -92,6 +237,14 @@ def create(client: ApiClient) -> tuple[callable, gr.Dropdown]:
                 collection_id=collection_id,
                 top_k=int(top_k),
                 strategy=strategy,
+                min_score=min_score,
+                fusion=fusion,
+                hybrid_vector_weight=hybrid_vector_weight,
+                max_results_per_document=int(max_results_per_document),
+                reranker_enabled=reranker_enabled,
+                llm_temperature=llm_temperature,
+                llm_think=llm_think,
+                llm_num_ctx=int(llm_num_ctx),
             ):
                 if event == "sources":
                     sources_rows = [
@@ -118,7 +271,13 @@ def create(client: ApiClient) -> tuple[callable, gr.Dropdown]:
 
     search_btn.click(
         fn=do_search,
-        inputs=[query_input, search_collection, search_strategy, top_k_slider],
+        inputs=[
+            query_input,
+            search_collection,
+            search_strategy,
+            top_k_slider,
+            *tuning_controls,
+        ],
         outputs=[answer_output, sources_output, last_answer],
     )
 
@@ -134,4 +293,4 @@ def create(client: ApiClient) -> tuple[callable, gr.Dropdown]:
 
     download_btn.click(fn=download_answer, inputs=[last_answer], outputs=[download_file])
 
-    return refresh_collections, search_collection
+    return load_search_tab, load_outputs

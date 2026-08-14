@@ -143,9 +143,9 @@ def get_chunker() -> ChunkerPort:
 
 
 @lru_cache
-def get_reranker_port() -> RerankerPort | None:
-    if not settings.reranker_enabled:
-        return None
+def get_reranker_port() -> RerankerPort:
+    # The ctor does NOT load the model — loading is lazy inside _get_model() under a lock,
+    # so constructing this unconditionally adds no startup cost or memory overhead.
     from src.infrastructure.rerankers.cross_encoder_reranker import CrossEncoderReranker
 
     return CrossEncoderReranker(model_name=settings.reranker_model)
@@ -158,6 +158,7 @@ def get_search_use_case() -> SearchUseCase:
         embedding=get_embedding_port(),
         llm=get_llm_port(),
         reranker=get_reranker_port(),
+        reranker_enabled=settings.reranker_enabled,
         max_results_per_document=settings.max_results_per_document,
     )
 
