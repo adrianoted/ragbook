@@ -271,6 +271,227 @@ async def test_search_stream_zero_results(
     assert events[2] == {"event": "done", "data": {}}
 
 
+# ── tuning parameters (task 6) ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_search_without_tuning_defaults_to_rerank_min_score_and_empty_vos(
+    test_app, mock_search_use_case, sample_collection
+):
+    """Regression: no tuning params → empty VOs and min_score == rerank_min_score (0.3)."""
+    async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/search",
+            json={"query": "test", "collection_id": str(sample_collection.id)},
+        )
+
+    assert response.status_code == 200
+    search_query = mock_search_use_case.execute.call_args[0][0]
+    assert search_query.min_score == 0.3
+    assert search_query.tuning.fusion is None
+    assert search_query.tuning.vector_weight is None
+    assert search_query.tuning.max_results_per_document is None
+    assert search_query.tuning.reranker_enabled is None
+    assert search_query.llm_options.temperature is None
+    assert search_query.llm_options.think is None
+    assert search_query.llm_options.num_ctx is None
+
+
+@pytest.mark.asyncio
+async def test_search_reranker_disabled_defaults_to_raw_min_score(
+    test_app, mock_search_use_case, sample_collection
+):
+    """reranker_enabled=False without min_score → raw-scale settings.min_score (0.15)."""
+    async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/search",
+            json={
+                "query": "test",
+                "collection_id": str(sample_collection.id),
+                "reranker_enabled": False,
+            },
+        )
+
+    assert response.status_code == 200
+    search_query = mock_search_use_case.execute.call_args[0][0]
+    assert search_query.min_score == 0.15
+    assert search_query.tuning.reranker_enabled is False
+
+
+@pytest.mark.asyncio
+async def test_search_reranker_enabled_defaults_to_rerank_min_score(
+    test_app, mock_search_use_case, sample_collection
+):
+    """reranker_enabled=True without min_score → sigmoid-scale rerank_min_score (0.3)."""
+    async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/search",
+            json={
+                "query": "test",
+                "collection_id": str(sample_collection.id),
+                "reranker_enabled": True,
+            },
+        )
+
+    assert response.status_code == 200
+    search_query = mock_search_use_case.execute.call_args[0][0]
+    assert search_query.min_score == 0.3
+    assert search_query.tuning.reranker_enabled is True
+
+
+@pytest.mark.parametrize("reranker_enabled", [True, False, None])
+@pytest.mark.asyncio
+async def test_search_explicit_min_score_overrides_defaults(
+    test_app, mock_search_use_case, sample_collection, reranker_enabled
+):
+    """An explicit min_score wins over both defaults, whatever the reranker flag is."""
+    body = {
+        "query": "test",
+        "collection_id": str(sample_collection.id),
+        "min_score": 0.42,
+    }
+    if reranker_enabled is not None:
+        body["reranker_enabled"] = reranker_enabled
+
+    async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://test") as client:
+        response = await client.post("/api/search", json=body)
+
+    assert response.status_code == 200
+    search_query = mock_search_use_case.execute.call_args[0][0]
+    assert search_query.min_score == 0.42
+
+
+@pytest.mark.asyncio
+async def test_search_propagates_all_tuning_params(
+    test_app, mock_search_use_case, sample_collection
+):
+    """All eight params land in the right VO fields; hybrid_vector_weight → tuning.vector_weight."""
+    async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/search",
+            json={
+                "query": "test",
+                "collection_id": str(sample_collection.id),
+                "min_score": 0.2,
+                "fusion": "rrf",
+                "hybrid_vector_weight": 0.4,
+                "max_results_per_document": 3,
+                "reranker_enabled": True,
+                "llm_temperature": 0.7,
+                "llm_think": True,
+                "llm_num_ctx": 8192,
+            },
+        )
+
+    assert response.status_code == 200
+    sq = mock_search_use_case.execute.call_args[0][0]
+    assert sq.min_score == 0.2
+    assert sq.tuning.fusion == "rrf"
+    assert sq.tuning.vector_weight == 0.4  # rename: hybrid_vector_weight → vector_weight
+    assert sq.tuning.max_results_per_document == 3
+    assert sq.tuning.reranker_enabled is True
+    assert sq.llm_options.temperature == 0.7
+    assert sq.llm_options.think is True
+    assert sq.llm_options.num_ctx == 8192
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("hybrid_vector_weight", 1.5),
+        ("min_score", -0.1),
+        ("llm_temperature", 3.0),
+        ("llm_num_ctx", 1024),
+        ("llm_num_ctx", 65536),
+        ("max_results_per_document", 0),
+        ("fusion", "banana"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_search_out_of_range_tuning_returns_422(
+    test_app, sample_collection, field, value
+):
+    async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/search",
+            json={"query": "test", "collection_id": str(sample_collection.id), field: value},
+        )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("hybrid_vector_weight", 0.0),
+        ("llm_temperature", 0.0),
+        ("llm_num_ctx", 2048),
+        ("llm_num_ctx", 32768),
+        ("max_results_per_document", 1),
+    ],
+)
+@pytest.mark.asyncio
+async def test_search_boundary_tuning_accepted(
+    test_app, sample_collection, field, value
+):
+    async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/search",
+            json={"query": "test", "collection_id": str(sample_collection.id), field: value},
+        )
+
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_search_raw_accepts_tuning_params(
+    test_app, mock_search_use_case, sample_collection
+):
+    async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/search/raw",
+            json={
+                "query": "test",
+                "collection_id": str(sample_collection.id),
+                "fusion": "weighted",
+                "hybrid_vector_weight": 0.6,
+                "llm_temperature": 0.5,
+            },
+        )
+
+    assert response.status_code == 200
+    sq = mock_search_use_case.execute_raw.call_args[0][0]
+    assert sq.tuning.fusion == "weighted"
+    assert sq.tuning.vector_weight == 0.6
+    assert sq.llm_options.temperature == 0.5
+
+
+@pytest.mark.asyncio
+async def test_search_stream_accepts_tuning_params(
+    test_app, mock_search_use_case, sample_search_results, sample_collection
+):
+    async def token_gen():
+        yield "tok"
+
+    mock_search_use_case.execute_stream.return_value = (sample_search_results, token_gen())
+
+    async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/search/stream",
+            json={
+                "query": "test",
+                "collection_id": str(sample_collection.id),
+                "reranker_enabled": False,
+                "llm_num_ctx": 4096,
+            },
+        )
+
+    assert response.status_code == 200
+    sq = mock_search_use_case.execute_stream.call_args[0][0]
+    assert sq.tuning.reranker_enabled is False
+    assert sq.llm_options.num_ctx == 4096
+
+
 # ── guardia 409 (B10b) ────────────────────────────────────────
 
 

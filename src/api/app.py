@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.api import embedding_state
 from src.api.dependencies import get_embedding_dimension, get_metadata_store, get_vector_store
+from src.api.routers.config_router import router as config_router
 from src.infrastructure.embeddings.model_prefetch import prefetch_model
 from src.api.routers.ingest_router import router as ingest_router
 from src.api.routers.search_router import router as search_router
@@ -118,6 +119,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(config_router)
 app.include_router(ingest_router)
 app.include_router(search_router)
 app.include_router(collection_router)

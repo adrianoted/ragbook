@@ -14,6 +14,20 @@ from src.ui.constants import (
 )
 
 
+def _build_search_body(
+    query: str,
+    collection_id: str | None,
+    top_k: int,
+    strategy: str,
+    **tuning: Any,
+) -> dict:
+    body: dict = {"query": query, "top_k": top_k, "strategy": strategy}
+    if collection_id:
+        body["collection_id"] = collection_id
+    body.update({k: v for k, v in tuning.items() if v is not None})
+    return body
+
+
 def parse_sse_lines(lines: Iterator[str]) -> Iterator[tuple[str, Any]]:
     """Parse SSE lines into (event, data) pairs.
 
@@ -87,11 +101,32 @@ class ApiClient:
 
     # ── Search ───────────────────────────────────────────────
 
-    def search(self, query: str, *, collection_id: str | None = None,
-               top_k: int = 5, strategy: str = "hybrid") -> dict:
-        body: dict = {"query": query, "top_k": top_k, "strategy": strategy}
-        if collection_id:
-            body["collection_id"] = collection_id
+    def search(
+        self,
+        query: str,
+        *,
+        collection_id: str | None = None,
+        top_k: int = 5,
+        strategy: str = "hybrid",
+        min_score: float | None = None,
+        fusion: str | None = None,
+        hybrid_vector_weight: float | None = None,
+        max_results_per_document: int | None = None,
+        reranker_enabled: bool | None = None,
+        llm_temperature: float | None = None,
+        llm_think: bool | None = None,
+        llm_num_ctx: int | None = None,
+    ) -> dict:
+        body = _build_search_body(
+            query, collection_id, top_k, strategy,
+            min_score=min_score, fusion=fusion,
+            hybrid_vector_weight=hybrid_vector_weight,
+            max_results_per_document=max_results_per_document,
+            reranker_enabled=reranker_enabled,
+            llm_temperature=llm_temperature,
+            llm_think=llm_think,
+            llm_num_ctx=llm_num_ctx,
+        )
         resp = httpx.post(f"{self._base}/search", json=body, timeout=TIMEOUT_SEARCH)
         resp.raise_for_status()
         return resp.json()
@@ -103,10 +138,25 @@ class ApiClient:
         collection_id: str | None = None,
         top_k: int = 5,
         strategy: str = "hybrid",
+        min_score: float | None = None,
+        fusion: str | None = None,
+        hybrid_vector_weight: float | None = None,
+        max_results_per_document: int | None = None,
+        reranker_enabled: bool | None = None,
+        llm_temperature: float | None = None,
+        llm_think: bool | None = None,
+        llm_num_ctx: int | None = None,
     ) -> Iterator[tuple[str, Any]]:
-        body: dict = {"query": query, "top_k": top_k, "strategy": strategy}
-        if collection_id:
-            body["collection_id"] = collection_id
+        body = _build_search_body(
+            query, collection_id, top_k, strategy,
+            min_score=min_score, fusion=fusion,
+            hybrid_vector_weight=hybrid_vector_weight,
+            max_results_per_document=max_results_per_document,
+            reranker_enabled=reranker_enabled,
+            llm_temperature=llm_temperature,
+            llm_think=llm_think,
+            llm_num_ctx=llm_num_ctx,
+        )
         with httpx.stream(
             "POST", f"{self._base}/search/stream", json=body, timeout=TIMEOUT_SEARCH
         ) as resp:
@@ -115,6 +165,16 @@ class ApiClient:
                 yield event, data
                 if event in ("done", "error"):
                     return
+
+    # ── Config ───────────────────────────────────────────────
+
+    def get_config(self) -> dict:
+        try:
+            resp = httpx.get(f"{self._base}/config", timeout=TIMEOUT_DEFAULT)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception:
+            return {}
 
     # ── Health ───────────────────────────────────────────────
 

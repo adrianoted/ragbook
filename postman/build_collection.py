@@ -23,6 +23,7 @@ ITEM_FRAGMENTS = [
     "documents.json",
     "ingest.json",
     "search.json",
+    "config.json",
     "cleanup.json",
 ]
 

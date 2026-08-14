@@ -117,6 +117,29 @@ The `sources` array gives you full traceability: you can see exactly which chunk
 
 Same request format, but the response contains only `sources` — no `answer` field. This is useful when you want fast results without waiting for the LLM, or when you want to inspect what the search engine returns before asking for a generated answer.
 
+**`POST /api/search/stream`** — Full search with streaming LLM answer.
+
+Same request format as `/api/search`, but the response is a Server-Sent Events (SSE) stream. The event sequence is: one `sources` event (the chunk list) → N `delta` events (answer tokens as they are generated) → one `done` event. If the LLM raises an error mid-stream, an `error` event is emitted and the stream closes. The UI Search tab uses this endpoint to render the answer incrementally.
+
+#### Per-request tuning parameters
+
+All three search endpoints accept eight optional tuning parameters in addition to `query`, `collection_id`, `top_k`, and `strategy`. Omit any field to use the server default (readable from `GET /api/config`).
+
+| Parameter | Type | Range | Default | Effect |
+|-----------|------|-------|---------|--------|
+| `min_score` | `float` | 0.0–1.0 | reranker-aware (see below) | Score filter threshold applied after retrieval or reranking |
+| `fusion` | `"weighted"` \| `"rrf"` | — | from settings | Hybrid merge strategy for this query |
+| `hybrid_vector_weight` | `float` | 0.0–1.0 | 0.7 | Weight of the vector branch in weighted fusion |
+| `max_results_per_document` | `int` | 1–10 | 2 | Maximum chunks retained per source document after diversification |
+| `reranker_enabled` | `bool` | — | from settings | Enable or disable the cross-encoder reranker for this query |
+| `llm_temperature` | `float` | 0.0–2.0 | 0.3 | Sampling temperature for answer generation |
+| `llm_think` | `bool` | — | `false` | Enable the model's thinking/reasoning mode (Ollama only — **no-op with Gemini**) |
+| `llm_num_ctx` | `int` | 2048–32768 | 8192 | Context window size for the LLM call (Ollama only — **no-op with Gemini**) |
+
+The `min_score` default is **reranker-aware**: if the effective reranker flag for the request is `true` (global setting unless overridden by `reranker_enabled`), the threshold applies to cross-encoder sigmoid scores and defaults to `RERANK_MIN_SCORE` (0.3). If the reranker is off, it applies to raw retrieval scores and defaults to `MIN_SCORE` (0.15). An explicit `min_score` in the request overrides both defaults, regardless of the reranker flag.
+
+Values outside the listed ranges produce a `422 Unprocessable Entity` response.
+
 ### 7.1.4 Managing Collections
 
 Collections let you organize your documents into separate knowledge bases. Three endpoints handle the full lifecycle:
@@ -137,6 +160,37 @@ Both validate the path `collection_id` the same way search does: `400` if it is 
 ### 7.1.6 Health Check
 
 **`GET /api/health`** — Returns `{ "status": "ok", "embedding_status": "warming|ready|error" }`. `status` flips to `ok` as soon as the port is open; `embedding_status` tracks the embedding model, which loads in a background task at startup (first boot downloads it from Hugging Face). Ingest and search will hang or fail while it is still `warming`, so orchestration probes should gate on `embedding_status`, not just `status`.
+
+### 7.1.7 Server Configuration
+
+**`GET /api/config`** — Returns the server's effective defaults and valid ranges for all eight per-request tuning parameters. The UI uses this endpoint on startup to populate the Advanced accordion without duplicating configuration constants.
+
+Response shape:
+
+```json
+{
+  "llm_provider": "ollama",
+  "defaults": {
+    "min_score": 0.3,
+    "fusion": "weighted",
+    "hybrid_vector_weight": 0.7,
+    "max_results_per_document": 2,
+    "reranker_enabled": true,
+    "llm_temperature": 0.3,
+    "llm_think": false,
+    "llm_num_ctx": 8192
+  },
+  "ranges": {
+    "min_score":                { "min": 0.0,  "max": 1.0,   "step": 0.05 },
+    "hybrid_vector_weight":     { "min": 0.0,  "max": 1.0,   "step": 0.05 },
+    "max_results_per_document": { "min": 1,    "max": 10,    "step": 1    },
+    "llm_temperature":          { "min": 0.0,  "max": 2.0,   "step": 0.1  },
+    "llm_num_ctx":              { "min": 2048, "max": 32768, "step": 2048 }
+  }
+}
+```
+
+`defaults.min_score` is reranker-aware — it equals `RERANK_MIN_SCORE` when `reranker_enabled` is `true`, otherwise `MIN_SCORE`. The `ranges` object lists only the five numeric parameters whose bounds the UI renders as sliders; boolean and enum parameters have no range. The `llm_num_ctx` range is fixed and conservative because the server does not know the context-window limit of the currently loaded Ollama model. The response never contains API keys, file paths, or internal URLs.
 
 ## 7.2 The Gradio Interface: Three Screens
 

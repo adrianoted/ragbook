@@ -1,0 +1,44 @@
+{
+  "name": "Config",
+  "description": "Server configuration endpoint. Returns the effective defaults and valid ranges for all eight per-request tuning parameters. The UI uses this endpoint on startup to populate the Advanced search controls without duplicating configuration constants.",
+  "item": [
+    {
+      "name": "Get Config",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('response has llm_provider', function () {",
+              "    pm.expect(pm.response.json().llm_provider).to.be.a('string');",
+              "});",
+              "",
+              "pm.test('response has defaults', function () {",
+              "    pm.expect(pm.response.json().defaults).to.be.an('object');",
+              "});",
+              "",
+              "pm.test('response has ranges', function () {",
+              "    pm.expect(pm.response.json().ranges).to.be.an('object');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/config",
+          "host": ["{{base_url}}"],
+          "path": ["api", "config"]
+        },
+        "description": "Returns the server's effective defaults and valid ranges for all eight per-request tuning parameters.\n\nResponse shape:\n```json\n{\n  \"llm_provider\": \"ollama\",\n  \"defaults\": {\n    \"min_score\": 0.3,\n    \"fusion\": \"weighted\",\n    \"hybrid_vector_weight\": 0.7,\n    \"max_results_per_document\": 2,\n    \"reranker_enabled\": true,\n    \"llm_temperature\": 0.3,\n    \"llm_think\": false,\n    \"llm_num_ctx\": 8192\n  },\n  \"ranges\": {\n    \"min_score\":                {\"min\": 0.0,  \"max\": 1.0,   \"step\": 0.05},\n    \"hybrid_vector_weight\":     {\"min\": 0.0,  \"max\": 1.0,   \"step\": 0.05},\n    \"max_results_per_document\": {\"min\": 1,    \"max\": 10,    \"step\": 1},\n    \"llm_temperature\":          {\"min\": 0.0,  \"max\": 2.0,   \"step\": 0.1},\n    \"llm_num_ctx\":              {\"min\": 2048, \"max\": 32768, \"step\": 2048}\n  }\n}\n```\n\n`defaults.min_score` is reranker-aware: equals `RERANK_MIN_SCORE` when `reranker_enabled` is `true`, otherwise `MIN_SCORE`. `llm_think` and `llm_num_ctx` are Ollama-only; the UI hides them when `llm_provider != \"ollama\"`."
+      }
+    }
+  ]
+}

@@ -119,3 +119,119 @@ def test_search_stream_404_raises_before_yield():
     with patch("httpx.stream", return_value=mock_resp):
         with pytest.raises(httpx.HTTPStatusError):
             list(client.search_stream("q", collection_id="coll-1"))
+
+
+# ── search (tuning params) ────────────────────────────────────────────────────
+
+
+def _make_post_mock(json_data: dict | list, status_code: int = 200):
+    mock_resp = MagicMock()
+    mock_resp.status_code = status_code
+    mock_resp.json.return_value = json_data
+    if status_code >= 400:
+        mock_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            message=f"HTTP {status_code}",
+            request=MagicMock(),
+            response=mock_resp,
+        )
+    else:
+        mock_resp.raise_for_status.return_value = None
+    return mock_resp
+
+
+def test_search_no_tuning_params_body_has_no_tuning_keys():
+    mock_resp = _make_post_mock({"answer": "x"})
+    client = ApiClient("http://localhost:8000/api")
+    with patch("httpx.post", return_value=mock_resp) as mock_post:
+        client.search("q", collection_id="coll-1")
+    body = mock_post.call_args.kwargs["json"]
+    assert set(body.keys()) == {"query", "top_k", "strategy", "collection_id"}
+
+
+def test_search_all_tuning_params_present_in_body():
+    mock_resp = _make_post_mock({"answer": "x"})
+    client = ApiClient("http://localhost:8000/api")
+    with patch("httpx.post", return_value=mock_resp) as mock_post:
+        client.search(
+            "q",
+            collection_id="coll-1",
+            min_score=0.3,
+            fusion="rrf",
+            hybrid_vector_weight=0.6,
+            max_results_per_document=2,
+            reranker_enabled=True,
+            llm_temperature=0.7,
+            llm_think=True,
+            llm_num_ctx=4096,
+        )
+    body = mock_post.call_args.kwargs["json"]
+    assert body["min_score"] == 0.3
+    assert body["fusion"] == "rrf"
+    assert body["hybrid_vector_weight"] == 0.6
+    assert body["max_results_per_document"] == 2
+    assert body["reranker_enabled"] is True
+    assert body["llm_temperature"] == 0.7
+    assert body["llm_think"] is True
+    assert body["llm_num_ctx"] == 4096
+
+
+def test_search_falsy_tuning_values_included_in_body():
+    mock_resp = _make_post_mock({"answer": "x"})
+    client = ApiClient("http://localhost:8000/api")
+    with patch("httpx.post", return_value=mock_resp) as mock_post:
+        client.search(
+            "q",
+            collection_id="coll-1",
+            reranker_enabled=False,
+            llm_temperature=0.0,
+            hybrid_vector_weight=0.0,
+        )
+    body = mock_post.call_args.kwargs["json"]
+    assert body["reranker_enabled"] is False
+    assert body["llm_temperature"] == 0.0
+    assert body["hybrid_vector_weight"] == 0.0
+
+
+def test_search_stream_same_body_as_search():
+    sse_lines = ["event: done", "data: {}", ""]
+    mock_resp = _make_mock_response(sse_lines)
+    client = ApiClient("http://localhost:8000/api")
+    with patch("httpx.stream", return_value=mock_resp) as mock_stream:
+        list(client.search_stream("q", collection_id="coll-1", min_score=0.3, fusion="rrf"))
+    body = mock_stream.call_args.kwargs["json"]
+    assert body["min_score"] == 0.3
+    assert body["fusion"] == "rrf"
+    assert body["query"] == "q"
+    assert body["collection_id"] == "coll-1"
+
+
+# ── get_config ────────────────────────────────────────────────────────────────
+
+
+def test_get_config_returns_parsed_json():
+    config_data = {"llm_temperature": 0.7, "min_score": 0.3}
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = config_data
+    mock_resp.raise_for_status.return_value = None
+    client = ApiClient("http://localhost:8000/api")
+    with patch("httpx.get", return_value=mock_resp):
+        result = client.get_config()
+    assert result == config_data
+
+
+def test_get_config_returns_empty_dict_on_connection_error():
+    client = ApiClient("http://localhost:8000/api")
+    with patch("httpx.get", side_effect=httpx.ConnectError("unreachable")):
+        result = client.get_config()
+    assert result == {}
+
+
+def test_get_config_returns_empty_dict_on_http_500():
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+        message="HTTP 500", request=MagicMock(), response=mock_resp
+    )
+    client = ApiClient("http://localhost:8000/api")
+    with patch("httpx.get", return_value=mock_resp):
+        result = client.get_config()
+    assert result == {}

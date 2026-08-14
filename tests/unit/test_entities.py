@@ -2,11 +2,14 @@ from datetime import datetime
 from uuid import UUID
 
 import pytest
+from pydantic import ValidationError
 
 from src.domain.entities import (
     Chunk,
     Collection,
     Document,
+    LlmOptions,
+    RetrievalTuning,
     SearchQuery,
     SearchResult,
 )
@@ -116,3 +119,64 @@ class TestEnums:
         assert SearchStrategy.TFIDF.value == "tfidf"
         assert SearchStrategy.HYBRID.value == "hybrid"
         assert len(SearchStrategy) == 3
+
+
+class TestRetrievalTuning:
+    def test_default_is_all_none(self):
+        rt = RetrievalTuning()
+        assert rt.fusion is None
+        assert rt.vector_weight is None
+        assert rt.max_results_per_document is None
+        assert rt.reranker_enabled is None
+
+    def test_falsy_vector_weight_preserved(self):
+        rt = RetrievalTuning(vector_weight=0.0)
+        assert rt.vector_weight == 0.0
+        assert rt.vector_weight is not None
+
+    def test_false_reranker_enabled_preserved(self):
+        rt = RetrievalTuning(reranker_enabled=False)
+        assert rt.reranker_enabled is False
+
+    def test_invalid_fusion_raises(self):
+        with pytest.raises(ValidationError):
+            RetrievalTuning(fusion="invalid")
+
+
+class TestLlmOptions:
+    def test_default_is_all_none(self):
+        opts = LlmOptions()
+        assert opts.temperature is None
+        assert opts.think is None
+        assert opts.num_ctx is None
+
+    def test_falsy_values_preserved(self):
+        opts = LlmOptions(temperature=0.0, think=False)
+        assert opts.temperature == 0.0
+        assert opts.temperature is not None
+        assert opts.think is False
+
+
+class TestSearchQueryTuning:
+    def test_defaults_are_empty_vos_not_none(self):
+        sq = SearchQuery(query="x")
+        assert isinstance(sq.tuning, RetrievalTuning)
+        assert isinstance(sq.llm_options, LlmOptions)
+        assert sq.tuning.fusion is None
+        assert sq.tuning.vector_weight is None
+        assert sq.tuning.max_results_per_document is None
+        assert sq.tuning.reranker_enabled is None
+        assert sq.llm_options.temperature is None
+        assert sq.llm_options.think is None
+        assert sq.llm_options.num_ctx is None
+
+    def test_model_copy_preserves_tuning(self):
+        sq = SearchQuery(
+            query="x",
+            tuning=RetrievalTuning(fusion="rrf"),
+            llm_options=LlmOptions(temperature=0.7),
+        )
+        copied = sq.model_copy(update={"top_k": 20})
+        assert copied.top_k == 20
+        assert copied.tuning.fusion == "rrf"
+        assert copied.llm_options.temperature == 0.7
