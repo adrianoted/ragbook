@@ -46,6 +46,19 @@ GRADIO_CSS = """
     border: 0 !important;
     padding: 0 !important;
 }
+.block.search-status {
+    padding: 8px 12px !important;
+    border-radius: 4px !important;
+    border-left-width: 4px !important;
+    border-left-style: solid !important;
+    background-color: #fff8e1 !important;
+    border-left-color: #f59f00 !important;
+}
+.prose.search-status {
+    background: none !important;
+    border: 0 !important;
+    padding: 0 !important;
+}
 """
 
 

@@ -6,13 +6,13 @@ import gradio as gr
 
 from src.ui.api_client import ApiClient
 from src.ui.constants import (
-    CHUNK_PREVIEW_MAX_CHARS,
     DEFAULT_SEARCH_STRATEGY,
     DOWNLOAD_FILE_PREFIX,
     FUSION_CHOICES,
     LLM_NUM_CTX_INFO,
     LLM_THINK_INFO,
     RERANKER_INFO,
+    SEARCH_STATUS_VARIANT,
     SEARCH_STRATEGIES,
     TOP_K_DEFAULT,
     TOP_K_MAX,
@@ -21,6 +21,7 @@ from src.ui.constants import (
     TUNING_FALLBACK_RANGES,
     TUNING_LABELS,
 )
+from src.ui.search_events import initial_outputs, next_outputs
 
 
 def create(client: ApiClient) -> tuple[callable, list]:
@@ -53,6 +54,7 @@ def create(client: ApiClient) -> tuple[callable, list]:
                 gr.Column(scale=4)  # spacer: pushes the button to the right
                 with gr.Column(scale=1, min_width=140):
                     search_btn = gr.Button("Search", variant="primary")
+            status_line = gr.Markdown(visible=False, elem_classes=[SEARCH_STATUS_VARIANT])
             answer_output = gr.Markdown(label="Answer")
             sources_output = gr.Dataframe(
                 headers=["Content", "Score", "Source file"],
@@ -222,14 +224,18 @@ def create(client: ApiClient) -> tuple[callable, list]:
         llm_num_ctx,
     ):
         if not query.strip():
-            yield "", gr.update(value=[]), ""
+            yield "", gr.update(value=[]), "", gr.update(value="", visible=False)
             return
         if not collection_id:
-            yield "**Please select a collection to search.**", gr.update(value=[]), ""
+            yield (
+                "**Please select a collection to search.**",
+                gr.update(value=[]),
+                "",
+                gr.update(value="", visible=False),
+            )
             return
 
-        accumulated = ""
-        sources_rows: list = []
+        state = initial_outputs()
 
         try:
             for event, data in client.search_stream(
@@ -246,28 +252,32 @@ def create(client: ApiClient) -> tuple[callable, list]:
                 llm_think=llm_think,
                 llm_num_ctx=int(llm_num_ctx),
             ):
-                if event == "sources":
-                    sources_rows = [
-                        [
-                            s["chunk_content"][:CHUNK_PREVIEW_MAX_CHARS],
-                            f"{s['score']:.4f}",
-                            s["document_filename"],
-                        ]
-                        for s in data
-                    ]
-                    yield "", gr.update(value=sources_rows), ""
-                elif event == "delta":
-                    accumulated += data["text"]
-                    yield accumulated, gr.update(value=sources_rows), ""
-                elif event == "done":
-                    yield accumulated, gr.update(value=sources_rows), accumulated
-                    return
-                elif event == "error":
-                    detail = data.get("detail", "unknown error")
-                    yield accumulated + f"\n\n**Error:** {detail}", gr.update(value=sources_rows), ""
+                new_state = next_outputs(event, data, state)
+                if new_state is None:
+                    continue
+                state = new_state
+                yield (
+                    state.answer,
+                    gr.update(value=state.sources_rows),
+                    state.last_answer,
+                    gr.update(value=state.status, visible=bool(state.status)),
+                )
+                if state.finished:
                     return
         except Exception as e:
-            yield f"**Error:** {e}", gr.update(value=[]), ""
+            yield f"**Error:** {e}", gr.update(value=[]), "", gr.update(value="", visible=False)
+            return
+
+        # The stream ended without a terminal event: `parse_sse_lines` silently
+        # drops partial frames, so a truncated response never reaches `done`.
+        # Settle on what was accumulated and clear the status line, otherwise the
+        # "generating" pill stays up forever with the button spinner already off.
+        yield (
+            state.answer,
+            gr.update(value=state.sources_rows),
+            state.answer,
+            gr.update(value="", visible=False),
+        )
 
     search_btn.click(
         fn=do_search,
@@ -278,7 +288,7 @@ def create(client: ApiClient) -> tuple[callable, list]:
             top_k_slider,
             *tuning_controls,
         ],
-        outputs=[answer_output, sources_output, last_answer],
+        outputs=[answer_output, sources_output, last_answer, status_line],
     )
 
     def download_answer(answer_text):
@@ -291,6 +301,15 @@ def create(client: ApiClient) -> tuple[callable, list]:
         tmp.close()
         return gr.update(value=tmp.name, visible=True)
 
-    download_btn.click(fn=download_answer, inputs=[last_answer], outputs=[download_file])
+    # show_progress="hidden": download_file is born visible=False, so it only mounts
+    # while this event is already in flight and misses the "complete" status that
+    # would clear its tracker — leaving a "processing | N.Ns" pill up forever
+    # (Gradio 6.9.0). Suppressing the tracker for this event sidesteps the race.
+    download_btn.click(
+        fn=download_answer,
+        inputs=[last_answer],
+        outputs=[download_file],
+        show_progress="hidden",
+    )
 
     return load_search_tab, load_outputs
