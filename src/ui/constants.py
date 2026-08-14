@@ -84,6 +84,11 @@ BANNER_ERROR = "❌ Model loading failed — check server logs."
 BANNER_VARIANT_INFO = "warmup-banner-info"
 BANNER_VARIANT_ERROR = "warmup-banner-error"
 
+# ── Search status line ───────────────────────────────────────
+SEARCH_STATUS_GENERATING = "⏳ Generating answer…"
+SEARCH_STATUS_IDLE = ""
+SEARCH_STATUS_VARIANT = "search-status"
+
 # ── Labels ───────────────────────────────────────────────────
 NO_COLLECTION_PLACEHOLDER = "—"
 DOWNLOAD_FILE_PREFIX = "ragbook_answer_"
