@@ -77,10 +77,12 @@ def create_gradio_app(api_base_url: str) -> gr.Blocks:
             search_load_fn, search_outputs = search_tab.create(client)
 
         with gr.Tab(TAB_COLLECTIONS):
-            collections_load_fn, table = collections_tab.create(client)
+            collections_load_fn, table, collections_state = collections_tab.create(client)
 
         with gr.Tab(TAB_UPLOAD):
-            upload_load_fn, upload_dropdown = upload_tab.create(client)
+            upload_load_fn, upload_dropdown, documents_table, load_documents_fn, documents_state = (
+                upload_tab.create(client)
+            )
 
         def _poll_health():
             health = client.health()
@@ -95,8 +97,10 @@ def create_gradio_app(api_base_url: str) -> gr.Blocks:
         warmup_timer.tick(fn=_poll_health, outputs=[warmup_banner, warmup_timer])
         app.load(fn=_poll_health, outputs=[warmup_banner, warmup_timer])
 
-        app.load(fn=collections_load_fn, outputs=[table])
+        app.load(fn=collections_load_fn, outputs=[table, collections_state])
         app.load(fn=search_load_fn, outputs=search_outputs)
-        app.load(fn=upload_load_fn, outputs=[upload_dropdown])
+        app.load(fn=upload_load_fn, outputs=[upload_dropdown]).then(
+            fn=load_documents_fn, inputs=[upload_dropdown], outputs=[documents_table, documents_state]
+        )
 
     return app

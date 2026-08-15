@@ -44,6 +44,11 @@ class Settings(BaseSettings):
 
     lexical_backend: Literal["tfidf", "bm25"] = "tfidf"
 
+    # Seconds the Upload tab waits between two polls of an async ingest job.
+    # Read by src/ui/constants.py; lower it for a snappier table, raise it to
+    # cut the request volume.
+    ingest_poll_interval: float = 5.0
+
     faiss_index_path: str = "data/faiss_indexes"
     chroma_persist_dir: str = "data/chroma_store"
     tfidf_index_path: str = "data/tfidf_indexes"

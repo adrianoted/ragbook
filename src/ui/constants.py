@@ -1,5 +1,7 @@
 """UI constants for the Gradio interface."""
 
+from src.config.settings import settings
+
 # ── App ──────────────────────────────────────────────────────
 APP_TITLE = "RAGBook"
 APP_HEADER = "# RAGBook\nUpload documents, search with AI, manage collections."
@@ -76,6 +78,14 @@ TIMEOUT_DEFAULT = 10
 TIMEOUT_INGEST = 120
 TIMEOUT_SEARCH = 120
 
+# ── Ingest polling ───────────────────────────────────────────
+# Cap prevents a Gradio queue slot from being held indefinitely on stuck jobs.
+# With the elapsed-seconds timer on screen (no spinner to animate), cadence
+# matters less, so this can run slower and halve the request volume.
+# The cadence is configurable via INGEST_POLL_INTERVAL in .env (default 5s).
+INGEST_POLL_INTERVAL = settings.ingest_poll_interval
+INGEST_MAX_WAIT = 3600
+
 # ── Warm-up banner ───────────────────────────────────────
 HEALTH_POLL_SECONDS = 10
 BANNER_DOWNLOADING = "⏳ Downloading model… {percent}% ({done} / {total} GB)"
@@ -84,10 +94,47 @@ BANNER_ERROR = "❌ Model loading failed — check server logs."
 BANNER_VARIANT_INFO = "warmup-banner-info"
 BANNER_VARIANT_ERROR = "warmup-banner-error"
 
+# ── Upload status ────────────────────────────────────────────
+UPLOAD_STATUS_QUEUED = "⏳ queued"
+UPLOAD_STATUS_DONE = "✓"
+UPLOAD_STATUS_DUPLICATE = "already ingested ({n} chunks)"
+UPLOAD_STATUS_UNKNOWN_JOB = "? unknown status (job lost, restart the upload)"
+UPLOAD_STATUS_UI_TIMEOUT = "⏳ UI timeout (ingest continues on the server)"
+UPLOAD_STATUS_ERROR_PREFIX = "✗ "
+
+# Ingest phases, in the order the server walks them. Duplicated here on purpose:
+# the UI talks to the API over HTTP, so this is part of the wire vocabulary, not
+# an import from src.api. Keep in sync with PHASES in src/api/ingest_jobs.py.
+INGEST_PHASE_LABELS = {
+    "loading": "Reading file",
+    "chunking": "Splitting text",
+    "embedding": "Computing embeddings",
+    "indexing": "Building index",
+    "saving": "Saving",
+}
+
 # ── Search status line ───────────────────────────────────────
+SEARCH_STATUS_RETRIEVING = "⏳ Retrieving documents…"
 SEARCH_STATUS_GENERATING = "⏳ Generating answer…"
 SEARCH_STATUS_IDLE = ""
 SEARCH_STATUS_VARIANT = "search-status"
+
+# ── Documents table ──────────────────────────────────────────
+DOCUMENTS_TABLE_HEADERS = ["Filename", "Type", "Created", ""]
+
+# Delete action — two-click arm/confirm, no native Gradio dialog available.
+DELETE_LABEL_IDLE = "🗑"
+DELETE_LABEL_ARMED = "Confirm delete?"
+DELETE_STATUS_SUCCESS = "Deleted {filename}."
+DELETE_STATUS_ERROR_PREFIX = "✗ Failed to delete: "
+
+# ── Collections table ────────────────────────────────────────
+COLLECTIONS_TABLE_HEADERS = ["ID", "Name", "Description", "Created", ""]
+
+# Same two-click arm/confirm as the documents table, but the delete cascades
+# over every document in the collection — the armed label has to say so.
+DELETE_COLLECTION_LABEL_ARMED = "Confirm delete (+ all documents)?"
+DELETE_COLLECTION_STATUS_SUCCESS = "Deleted collection {name}."
 
 # ── Labels ───────────────────────────────────────────────────
 NO_COLLECTION_PLACEHOLDER = "—"

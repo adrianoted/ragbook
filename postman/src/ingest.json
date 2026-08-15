@@ -65,6 +65,100 @@
         },
         "description": "Uploads and ingests a file into an existing collection.\nAutomatically saves `document_id` and `filename` as variables."
       }
+    },
+    {
+      "name": "Ingest Document (async)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 202 (new) or 200 (duplicate)', function () {",
+              "    pm.expect(pm.response.code).to.be.oneOf([200, 202]);",
+              "});",
+              "",
+              "if (pm.response.code === 202) {",
+              "    var json = pm.response.json();",
+              "    if (json.job_id) {",
+              "        pm.collectionVariables.set('ingest_job_id', json.job_id);",
+              "        console.log('ingest_job_id saved:', json.job_id);",
+              "    }",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/ingest/async",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "ingest",
+            "async"
+          ]
+        },
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "src": "default-file-streaming.md",
+              "description": "Requires the Working Directory set to resources/ (Settings → General), otherwise Postman can't resolve the path and sends the field empty: the server responds 400 'Unsupported file type: '."
+            },
+            {
+              "key": "collection_id",
+              "value": "{{collection_id}}",
+              "type": "text",
+              "description": "UUID of the collection. Auto-populated if you've already run Create Collection."
+            }
+          ]
+        },
+        "description": "Submits a file for background ingestion. Returns 202 with a job_id for a new file, or 200 with already_ingested: true for a duplicate.\nSaves job_id as ingest_job_id collection variable. Poll 'Get Ingest Job' to track progress."
+      }
+    },
+    {
+      "name": "Get Ingest Job",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response has status field', function () {",
+              "    pm.expect(pm.response.json().status).to.be.a('string');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/ingest/jobs/{{ingest_job_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "ingest",
+            "jobs",
+            "{{ingest_job_id}}"
+          ]
+        },
+        "description": "Polls the status of a background ingest job. Run after 'Ingest Document (async)'. Status cycles through pending → running (with phase and chunk progress) → done / error. Returns 404 for an unknown or expired job."
+      }
     }
   ],
   "event": [
