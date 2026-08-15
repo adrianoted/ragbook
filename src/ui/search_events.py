@@ -5,6 +5,7 @@ from src.ui.constants import (
     CHUNK_PREVIEW_MAX_CHARS,
     SEARCH_STATUS_GENERATING,
     SEARCH_STATUS_IDLE,
+    SEARCH_STATUS_RETRIEVING,
 )
 
 
@@ -28,12 +29,12 @@ class SearchOutputs:
 
 
 def initial_outputs() -> SearchOutputs:
-    """Return the empty state a search starts from."""
+    """Return the starting state for a search, with the status line already lit on retrieval."""
     return SearchOutputs(
         answer="",
         sources_rows=[],
         last_answer="",
-        status=SEARCH_STATUS_IDLE,
+        status=SEARCH_STATUS_RETRIEVING,
     )
 
 

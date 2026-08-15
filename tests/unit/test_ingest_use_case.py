@@ -1,9 +1,10 @@
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
 
-from src.application.ingest_use_case import IngestUseCase
+from src.application.ingest_use_case import IngestUseCase, INGEST_BATCH_SIZE
+from src.domain.entities import Chunk
 from src.domain.enums import DocumentType
 
 
@@ -147,3 +148,87 @@ async def test_execute_without_content_hash_leaves_metadata_untouched(
     )
 
     assert "content_hash" not in doc.metadata
+
+
+# ── on_progress callback tests ────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_on_progress_complete_sequence(
+    ingest_use_case, mock_loader, mock_chunker, mock_embedding,
+    mock_metadata_store, sample_document, sample_chunks,
+):
+    mock_loader.load.return_value = sample_document
+    mock_chunker.chunk.return_value = sample_chunks  # 3 chunks, one batch
+    mock_metadata_store.save_document.return_value = sample_document
+    mock_metadata_store.save_chunks.return_value = sample_chunks
+
+    received: list[tuple[str, int, int]] = []
+    await ingest_use_case.execute(
+        "/tmp/test.txt", DocumentType.TEXT, collection_id=str(uuid4()),
+        on_progress=lambda phase, done, total: received.append((phase, done, total)),
+    )
+
+    total = len(sample_chunks)
+    assert received == [
+        ("loading", 0, 0),
+        ("chunking", 0, 0),
+        ("embedding", 0, total),
+        ("embedding", total, total),
+        ("indexing", total, total),
+        ("saving", total, total),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_on_progress_batch_advancement(
+    ingest_use_case, mock_loader, mock_chunker, mock_metadata_store,
+    sample_document, mock_embedding,
+):
+    total_chunks = 5
+    doc_id = sample_document.id
+    big_chunks = [
+        Chunk(document_id=doc_id, content=f"chunk {i}", metadata={}, index=i)
+        for i in range(total_chunks)
+    ]
+    mock_loader.load.return_value = sample_document
+    mock_chunker.chunk.return_value = big_chunks
+    mock_embedding.embed.return_value = [[0.1] * 4] * 2  # will be called per batch
+    mock_metadata_store.save_document.return_value = sample_document
+    mock_metadata_store.save_chunks.return_value = big_chunks
+
+    received: list[tuple[str, int, int]] = []
+
+    with patch("src.application.ingest_use_case.INGEST_BATCH_SIZE", 2):
+        await ingest_use_case.execute(
+            "/tmp/test.txt", DocumentType.TEXT, collection_id=str(uuid4()),
+            on_progress=lambda phase, done, total: received.append((phase, done, total)),
+        )
+
+    embedding_calls = [(d, t) for phase, d, t in received if phase == "embedding"]
+    # first call is start (0, total), then one per batch
+    assert embedding_calls[0] == (0, total_chunks)
+    chunks_done_values = [d for d, _ in embedding_calls[1:]]
+    chunks_total_values = [t for _, t in embedding_calls[1:]]
+    assert all(t == total_chunks for t in chunks_total_values)
+    assert chunks_done_values == sorted(chunks_done_values)
+    assert chunks_done_values[-1] == total_chunks
+
+
+@pytest.mark.asyncio
+async def test_execute_without_on_progress_works(
+    ingest_use_case, mock_loader, mock_chunker, mock_embedding,
+    mock_vector_store, mock_tfidf, mock_metadata_store,
+    sample_document, sample_chunks,
+):
+    mock_loader.load.return_value = sample_document
+    mock_chunker.chunk.return_value = sample_chunks
+    mock_metadata_store.save_document.return_value = sample_document
+    mock_metadata_store.save_chunks.return_value = sample_chunks
+
+    doc, chunks = await ingest_use_case.execute(
+        "/tmp/test.txt", DocumentType.TEXT, collection_id=str(uuid4()),
+    )
+
+    assert doc == sample_document
+    assert chunks == sample_chunks

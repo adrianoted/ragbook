@@ -282,7 +282,7 @@ What `down -v` *does* destroy is the two named volumes: `hf-cache` (an ~8 GB re-
 
 On macOS and Windows, containers have **no access to the host GPU** (Metal is not exposed to the Linux VM). The image ships the CPU-only PyTorch build, so every model runs on CPU — noticeably slower than a native run, where `SentenceTransformer` picks up `mps`/`cuda` automatically.
 
-The most visible symptom is **upload timing out**: the Gradio UI gives up on `POST /api/ingest` after `TIMEOUT_INGEST` (120s, `src/ui/constants.py`) and the row shows `ERROR` with `timed out`. With the default `Qwen/Qwen3-Embedding-4B` (4B parameters), embedding a few hundred chunks on CPU takes well over that. The server keeps working after the client disconnects, so the document may still land in the collection minutes later — refresh the Collections tab before retrying.
+The most visible symptom is **slow ingest**: with the default `Qwen/Qwen3-Embedding-4B` (4B parameters), embedding a few hundred chunks on CPU takes several minutes. The Gradio UI submits files to `POST /api/ingest/async`, which returns a job ID immediately, then polls `GET /api/ingest/jobs/{id}` every 1.5 s — the upload table updates in place, cycling through pipeline phases (e.g. `embedding 12/42 (29%)`), so you see progress rather than a timeout error.
 
 A common misconception: switching to a hosted LLM does **not** fix this. As the [Models and Resources](#models-and-resources) table shows, only answer generation can be offloaded — embedding and reranking are in-process regardless of `LLM_PROVIDER`. Gemini removes the slowest part of *search* and frees the RAM and CPU the `ollama` container would take, but ingest stays exactly as slow.
 
@@ -295,10 +295,9 @@ Ways to make Docker usable:
    EMBEDDING_MODEL=intfloat/multilingual-e5-small
    ```
    ⚠️ Changing the model changes the vector dimension. Existing collections then fail with **409** from `check_model_compatibility` — create a new collection and re-ingest.
-2. **Raise the UI timeout** — keep the 4B model and accept the wait: bump `TIMEOUT_INGEST` in `src/ui/constants.py`.
-3. **Smaller LLM** — `LLM_MODEL=qwen3:4b`; `qwen3:14b` on CPU generates at a few tokens per second.
-4. **Hosted LLM** — `LLM_PROVIDER=gemini` + `GOOGLE_API_KEY`, with `docker compose up app` (no `ollama` container at all).
-5. **Hybrid setup** — run the app natively (`python run.py`, uses MPS) and keep only supporting services in Docker. Best option on Apple Silicon.
+2. **Smaller LLM** — `LLM_MODEL=qwen3:4b`; `qwen3:14b` on CPU generates at a few tokens per second.
+3. **Hosted LLM** — `LLM_PROVIDER=gemini` + `GOOGLE_API_KEY`, with `docker compose up app` (no `ollama` container at all).
+4. **Hybrid setup** — run the app natively (`python run.py`, uses MPS) and keep only supporting services in Docker. Best option on Apple Silicon.
 
 On Linux with `nvidia-container-toolkit` none of this applies: the container reaches the GPU and performance matches a native run.
 

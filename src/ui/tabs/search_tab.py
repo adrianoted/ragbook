@@ -236,6 +236,12 @@ def create(client: ApiClient) -> tuple[callable, list]:
             return
 
         state = initial_outputs()
+        yield (
+            state.answer,
+            gr.update(value=state.sources_rows),
+            state.last_answer,
+            gr.update(value=state.status, visible=bool(state.status)),
+        )
 
         try:
             for event, data in client.search_stream(

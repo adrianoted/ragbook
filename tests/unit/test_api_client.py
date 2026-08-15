@@ -1,7 +1,7 @@
 """Unit tests for ApiClient.search_stream and parse_sse_lines."""
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, mock_open, patch
 
 import httpx
 import pytest
@@ -235,3 +235,128 @@ def test_get_config_returns_empty_dict_on_http_500():
     with patch("httpx.get", return_value=mock_resp):
         result = client.get_config()
     assert result == {}
+
+
+# ── ingest_async ──────────────────────────────────────────────────────────────
+
+
+def test_ingest_async_posts_to_ingest_async_url():
+    mock_resp = _make_post_mock({"job_id": "j1", "status": "queued"})
+    client = ApiClient("http://localhost:8000/api")
+    with patch("httpx.post", return_value=mock_resp) as mock_post, \
+         patch("builtins.open", mock_open(read_data=b"bytes")):
+        result = client.ingest_async("/tmp/doc.txt", "col-1")
+    assert mock_post.call_args.args[0] == "http://localhost:8000/api/ingest/async"
+    assert result == {"job_id": "j1", "status": "queued"}
+
+
+def test_ingest_async_returns_already_ingested_dict():
+    mock_resp = _make_post_mock({"already_ingested": True, "document_id": "d1"})
+    client = ApiClient("http://localhost:8000/api")
+    with patch("httpx.post", return_value=mock_resp), \
+         patch("builtins.open", mock_open(read_data=b"bytes")):
+        result = client.ingest_async("/tmp/doc.txt", "col-1")
+    assert result["already_ingested"] is True
+
+
+def test_ingest_async_propagates_http_error():
+    mock_resp = _make_post_mock({}, status_code=500)
+    client = ApiClient("http://localhost:8000/api")
+    with patch("httpx.post", return_value=mock_resp), \
+         patch("builtins.open", mock_open(read_data=b"bytes")), \
+         pytest.raises(httpx.HTTPStatusError):
+        client.ingest_async("/tmp/doc.txt", "col-1")
+
+
+# ── get_ingest_job ────────────────────────────────────────────────────────────
+
+
+def _make_get_mock(json_data: dict | list, status_code: int = 200):
+    mock_resp = MagicMock()
+    mock_resp.status_code = status_code
+    mock_resp.json.return_value = json_data
+    if status_code >= 400:
+        mock_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            message=f"HTTP {status_code}",
+            request=MagicMock(),
+            response=mock_resp,
+        )
+    else:
+        mock_resp.raise_for_status.return_value = None
+    return mock_resp
+
+
+def test_get_ingest_job_returns_status_dict():
+    job_data = {"job_id": "j1", "status": "running", "progress": 0.5}
+    mock_resp = _make_get_mock(job_data)
+    client = ApiClient("http://localhost:8000/api")
+    with patch("httpx.get", return_value=mock_resp):
+        result = client.get_ingest_job("j1")
+    assert result == job_data
+
+
+def test_get_ingest_job_404_returns_none():
+    mock_resp = _make_get_mock({}, status_code=404)
+    client = ApiClient("http://localhost:8000/api")
+    with patch("httpx.get", return_value=mock_resp):
+        result = client.get_ingest_job("missing")
+    assert result is None
+
+
+# ── list_documents ────────────────────────────────────────────────────────────
+
+
+def test_list_documents_returns_list_of_dicts():
+    docs = [{"filename": "a.txt", "document_type": "text", "created_at": "2026-08-14T00:00:00"}]
+    mock_resp = _make_get_mock(docs)
+    client = ApiClient("http://localhost:8000/api")
+    with patch("httpx.get", return_value=mock_resp):
+        result = client.list_documents("col-1")
+    assert result == docs
+
+
+def test_list_documents_returns_empty_list_on_network_error():
+    client = ApiClient("http://localhost:8000/api")
+    with patch("httpx.get", side_effect=httpx.ConnectError("unreachable")):
+        result = client.list_documents("col-1")
+    assert result == []
+
+
+# ── delete_document ──────────────────────────────────────────────────────────
+
+
+def test_delete_document_calls_expected_url():
+    mock_resp = _make_get_mock({})
+    client = ApiClient("http://localhost:8000/api")
+    with patch("httpx.delete", return_value=mock_resp) as mock_delete:
+        result = client.delete_document("col-1", "doc-1")
+    mock_delete.assert_called_once_with(
+        "http://localhost:8000/api/collections/col-1/documents/doc-1", timeout=10
+    )
+    assert result is None
+
+
+def test_delete_document_404_raises():
+    mock_resp = _make_get_mock({}, status_code=404)
+    client = ApiClient("http://localhost:8000/api")
+    with patch("httpx.delete", return_value=mock_resp), pytest.raises(httpx.HTTPStatusError):
+        client.delete_document("col-1", "missing")
+
+
+# ── delete_collection ────────────────────────────────────────────────────────
+
+
+def test_delete_collection_calls_expected_url():
+    mock_resp = _make_get_mock({})
+    client = ApiClient("http://localhost:8000/api")
+    with patch("httpx.delete", return_value=mock_resp) as mock_delete:
+        result = client.delete_collection("col-1")
+    mock_delete.assert_called_once_with("http://localhost:8000/api/collections/col-1", timeout=10)
+    assert result is None
+
+
+def test_delete_collection_404_raises():
+    mock_resp = _make_get_mock({}, status_code=404)
+    client = ApiClient("http://localhost:8000/api")
+    with patch("httpx.delete", return_value=mock_resp), pytest.raises(httpx.HTTPStatusError):
+        client.delete_collection("missing")

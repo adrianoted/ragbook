@@ -64,6 +64,43 @@ The router also calls `check_model_compatibility` before hashing: if the collect
 
 Unsupported file types are rejected with a `400` error.
 
+#### Asynchronous Ingest
+
+**`POST /api/ingest/async`** — Upload a file and schedule the pipeline as a background task.
+
+Accepts the same `multipart/form-data` request as `POST /api/ingest`. The pre-flight steps — collection lookup, model compatibility, extension validation, SHA-256 hash, and dedup — run synchronously. If the content is already in the collection the endpoint returns `200` with the same body as the sync endpoint (`already_ingested: true`). For new content the file is written to disk and the ingest pipeline is launched as an asyncio task; the endpoint returns `202 Accepted` immediately:
+
+```json
+{
+  "job_id": "4a9f...",
+  "status": "pending",
+  "filename": "report.pdf",
+  "collection_id": "my-collection"
+}
+```
+
+**`GET /api/ingest/jobs/{job_id}`** — Poll the status of a background ingest job.
+
+Returns `404` for an unknown or expired job (jobs are evicted from the registry one hour after finishing). While the pipeline is running, the response includes the current phase and a chunk counter:
+
+```json
+{
+  "job_id": "4a9f...",
+  "status": "running",
+  "phase": "embedding",
+  "chunks_done": 12,
+  "chunks_total": 42,
+  "document_id": null,
+  "filename": "report.pdf",
+  "num_chunks": 0,
+  "error": null
+}
+```
+
+The five phases cycle in order: `loading → chunking → embedding → indexing → saving`. On success, `status` becomes `done`, `document_id` is set, and `num_chunks` holds the final chunk count. On failure, `status` is `error` and `error` holds the message.
+
+> **Single-worker constraint.** The job registry is in-process, stored in memory on the uvicorn worker that scheduled the job — the same limitation documented for `embedding_state.py`. With multiple workers a `GET /api/ingest/jobs/{id}` request can land on a different worker and return `404`. Run with one uvicorn worker if job polling must be reliable.
+
 ### 7.1.3 Searching With and Without LLM
 
 RAGBook offers two search endpoints — one that generates a natural-language answer, and one that returns raw chunks.
@@ -229,7 +266,7 @@ This makes it easy to add, remove, or modify a tab without touching the others.
 
 ### 7.2.2 Constants: No Magic Strings
 
-The `constants.py` module centralizes every configurable value used by the UI layer: application title, supported file types, search strategies, `top_k` range and defaults, HTTP timeouts (with dedicated values for ingest and search operations), and display labels. This means changing a timeout or adding a file type is a single-line edit in one file — nothing is hardcoded inline.
+The `constants.py` module centralizes every configurable value used by the UI layer: application title, supported file types, search strategies, `top_k` range and defaults, HTTP timeouts, ingest polling parameters, upload status strings (for the async progress table), search status messages (for the status line shown during retrieval and generation), and all display labels. This means changing a timeout or adding a file type is a single-line edit in one file — nothing is hardcoded inline.
 
 ```python
 TIMEOUT_INGEST = 120     # long-running uploads
@@ -239,7 +276,7 @@ TIMEOUT_DEFAULT = 10     # quick metadata operations
 
 ### 7.2.3 The API Client
 
-All HTTP communication with the backend is centralized in `ApiClient` — a thin `httpx` wrapper with one method per API operation (`ingest`, `search`, `list_collections`, `create_collection`, `delete_collection`). It now receives the full `base_url` (constructed by `app.py` from settings), eliminating any hardcoded host or protocol assumptions. Timeouts are imported from `constants.py`:
+All HTTP communication with the backend is centralized in `ApiClient` — a thin `httpx` wrapper with one method per API operation: `ingest`, `ingest_async`, `get_ingest_job`, `list_documents`, `search`, `search_stream`, `list_collections`, `create_collection`, `delete_collection`, `get_config`, and `health`. It receives the full `base_url` (constructed by `app.py` from settings), eliminating any hardcoded host or protocol assumptions. Timeouts are imported from `constants.py`:
 
 ```python
 r = client.ingest(file_path, collection_id or None)
@@ -250,11 +287,13 @@ This avoids duplicating URL construction and error handling across tabs, and mak
 
 ### 7.2.4 Upload Documents
 
-The first tab lets you drag and drop files (`.txt`, `.md`, `.pdf`, `.csv`, `.png`, `.jpg`) and assign them to a collection. The collection dropdown supports custom values, so you can type a new collection name directly. After clicking **Upload**, a results table shows each file's name, type, number of chunks produced, and collection.
+The first tab lets you drag and drop files (`.txt`, `.md`, `.pdf`, `.csv`, `.png`, `.jpg`) and assign them to a collection. The collection dropdown supports custom values, so you can type a new collection name directly. After clicking **Upload**, the results table updates in place as each file is processed: the Status column cycles through pipeline phases (e.g. `embedding 12/42 (29%)`) and settles on `✓` when done. Below the upload table, a **Documents in collection** table lists the documents already indexed in the selected collection (filename, type, and creation date); it refreshes automatically after each upload and whenever you pick a different collection.
 
 ### 7.2.5 Search
 
 The search tab provides a text input for your question, a collection dropdown (a collection **must** be selected — the dropdown does not accept custom values, and searching with none selected returns **"Please select a collection to search."**), a radio selector for the search strategy (vector / tfidf / hybrid), and a slider for `top_k` (1–20).
+
+A **status line** above the answer area shows the current phase: `⏳ Retrieving documents…` during vector/lexical retrieval, then `⏳ Generating answer…` while the LLM streams its response. The line clears when the answer is complete.
 
 Results appear in two parts: a **Markdown block** with the LLM-generated answer, and a **table** listing the source chunks with their content (truncated to 300 characters), relevance score, and source filename. A **Download answer** button saves the answer text to a `.txt` file.
 

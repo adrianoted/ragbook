@@ -3,6 +3,7 @@ from src.ui.constants import (
     CHUNK_PREVIEW_MAX_CHARS,
     SEARCH_STATUS_GENERATING,
     SEARCH_STATUS_IDLE,
+    SEARCH_STATUS_RETRIEVING,
 )
 from src.ui.search_events import initial_outputs, next_outputs
 
@@ -27,8 +28,8 @@ class TestInitialOutputs:
     def test_should_return_not_finished_when_created(self):
         assert initial_outputs().finished is False
 
-    def test_should_return_idle_status_when_created(self):
-        assert initial_outputs().status == SEARCH_STATUS_IDLE
+    def test_should_return_retrieving_status_when_created(self):
+        assert initial_outputs().status == SEARCH_STATUS_RETRIEVING
 
 
 class TestSourcesEvent:
@@ -161,6 +162,7 @@ class TestUnknownEvent:
 class TestFullSequence:
     def test_should_transition_status_through_full_sequence(self):
         state = initial_outputs()
+        assert state.status == SEARCH_STATUS_RETRIEVING
         state = next_outputs("sources", _SOURCE_DATA, state)
         assert state.status == SEARCH_STATUS_GENERATING
         state = next_outputs("delta", {"text": "tok1"}, state)
@@ -182,4 +184,28 @@ class TestEmptySourcesFollowedByDelta:
         state = initial_outputs()
         state = next_outputs("sources", [], state)
         state = next_outputs("delta", {"text": "fallback"}, state)
+        assert state.status == SEARCH_STATUS_IDLE
+
+
+class TestRetrievingPhase:
+    def test_should_transition_from_retrieving_to_generating_when_sources_received(self):
+        state = initial_outputs()
+        assert state.status == SEARCH_STATUS_RETRIEVING
+        result = next_outputs("sources", _SOURCE_DATA, state)
+        assert result.status == SEARCH_STATUS_GENERATING
+
+    def test_should_return_idle_and_finished_when_error_is_first_event(self):
+        state = initial_outputs()
+        result = next_outputs("error", {"detail": "timeout during retrieval"}, state)
+        assert result.status == SEARCH_STATUS_IDLE
+        assert result.finished is True
+
+    def test_should_follow_retrieving_generating_idle_idle_sequence(self):
+        state = initial_outputs()
+        assert state.status == SEARCH_STATUS_RETRIEVING
+        state = next_outputs("sources", _SOURCE_DATA, state)
+        assert state.status == SEARCH_STATUS_GENERATING
+        state = next_outputs("delta", {"text": "tok"}, state)
+        assert state.status == SEARCH_STATUS_IDLE
+        state = next_outputs("done", {}, state)
         assert state.status == SEARCH_STATUS_IDLE

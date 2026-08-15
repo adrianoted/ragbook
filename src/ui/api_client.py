@@ -99,6 +99,46 @@ class ApiClient:
         resp.raise_for_status()
         return resp.json()
 
+    def ingest_async(self, file_path: str, collection_id: str) -> dict:
+        filename = Path(file_path).name
+        with open(file_path, "rb") as f:
+            resp = httpx.post(
+                f"{self._base}/ingest/async",
+                files={"file": (filename, f)},
+                data={"collection_id": collection_id},
+                timeout=TIMEOUT_INGEST,
+            )
+        resp.raise_for_status()
+        return resp.json()
+
+    def get_ingest_job(self, job_id: str) -> dict | None:
+        try:
+            resp = httpx.get(f"{self._base}/ingest/jobs/{job_id}", timeout=TIMEOUT_DEFAULT)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return None
+            raise
+
+    def list_documents(self, collection_id: str) -> list[dict]:
+        try:
+            resp = httpx.get(
+                f"{self._base}/collections/{collection_id}/documents",
+                timeout=TIMEOUT_DEFAULT,
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except Exception:
+            return []
+
+    def delete_document(self, collection_id: str, document_id: str) -> None:
+        resp = httpx.delete(
+            f"{self._base}/collections/{collection_id}/documents/{document_id}",
+            timeout=TIMEOUT_DEFAULT,
+        )
+        resp.raise_for_status()
+
     # ── Search ───────────────────────────────────────────────
 
     def search(
